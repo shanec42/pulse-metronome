@@ -1,0 +1,15 @@
+# Build output and IDE files
+.gradle/
+.gradle-container-home/
+build/
+captures/
+.cxx/
+.idea/
+*.iml
+.DS_Store
+/local.properties
+
+# Release signing: never commit the upload key or its passwords
+*.jks
+*.keystore
+keystore.properties

@@ -1,0 +1,6 @@
+Reading pulse=93 spo2=96 pi=13.2
+Reading pulse=93 spo2=96 pi=13.2
+Reading pulse=93 spo2=96 pi=13.2
+Reading pulse=93 spo2=96 pi=13.2
+Reading pulse=93 spo2=96 pi=13.2
+Reading pulse=- spo2=- pi=-

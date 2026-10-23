@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and below. Everything is backed up except the database safety copies and the debug
+     capture logs, which could push the app past the 25 MB auto-backup quota and make Android skip
+     the whole backup. -->
+<full-backup-content>
+    <exclude domain="file" path="db-backups/" />
+    <exclude domain="file" path="debug-capture/" />
+</full-backup-content>

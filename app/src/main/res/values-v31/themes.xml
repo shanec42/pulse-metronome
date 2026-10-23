@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.PulseMetronome" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/pm_background</item>
+        <item name="android:statusBarColor">@color/pm_background</item>
+        <item name="android:navigationBarColor">@color/pm_background</item>
+        <!-- Android 12+ system splash: flat #17120F with the launcher foreground, no animation. -->
+        <item name="android:windowSplashScreenBackground">@color/pm_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    </style>
+</resources>

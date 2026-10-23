@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+. Same rule as backup_rules.xml: keep the database safety copies and the debug
+     capture logs on the phone only. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="db-backups/" />
+        <exclude domain="file" path="debug-capture/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="db-backups/" />
+        <exclude domain="file" path="debug-capture/" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.PulseMetronome" parent="android:Theme.Material.NoActionBar">
+        <!-- Matches the splash colour so Android 8-11 (no system splash) also opens on #17120F. -->
+        <item name="android:windowBackground">@color/pm_background</item>
+        <item name="android:statusBarColor">@color/pm_background</item>
+        <item name="android:navigationBarColor">@color/pm_background</item>
+    </style>
+</resources>

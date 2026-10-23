@@ -1,0 +1,25 @@
+services:
+  android:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    environment:
+      - GRADLE_USER_HOME=/workspace/.gradle-container-home
+      - ADB_SERVER_SOCKET=tcp:127.0.0.1:5037
+      # Running as a numeric uid with no matching /etc/passwd entry (see `user:` below)
+      # leaves $HOME unset/`/` inside the container, which AGP needs writable for its
+      # ~/.android analytics settings dir - explicitly redirect it into the bind-mounted,
+      # gitignored workspace so it's both writable and doesn't touch the host's real $HOME.
+      - HOME=/workspace/.gradle-container-home
+    user: "${UID:-1000}:${GID:-1000}"
+    # network_mode: host, combined with ADB_SERVER_SOCKET above, lets `connectedAndroidTest`
+    # (Task 10, Task 22) running inside the container reach the host's adb server directly -
+    # adb itself stays host-side per this task's own framing, the container just needs to
+    # SPEAK to it over that socket. Linux-only; if this ever needs to run on macOS/Windows,
+    # `network_mode: host` isn't supported the same way and connectedAndroidTest would need a
+    # different mechanism (decided at implementation time if that ever applies - this dev
+    # machine is Linux, per the session's environment context, so it's not addressed further).
+    network_mode: host

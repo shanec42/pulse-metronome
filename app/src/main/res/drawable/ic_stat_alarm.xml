@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar glyph for the "Session complete" alarm notification: alarm clock. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M4.5,13 A7.5,7.5 0 1 0 19.5,13 A7.5,7.5 0 1 0 4.5,13"
+        android:strokeColor="#FFFFFF" android:strokeWidth="2.4" />
+    <path android:pathData="M12,9 L12,13 L14.8,14.8"
+        android:strokeColor="#FFFFFF" android:strokeWidth="2.4" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M3.5,6 L7,3 M20.5,6 L17,3"
+        android:strokeColor="#FFFFFF" android:strokeWidth="2.4" android:strokeLineCap="round" />
+</vector>

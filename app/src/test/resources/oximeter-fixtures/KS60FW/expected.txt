@@ -1,0 +1,2 @@
+Reading pulse=83 spo2=96 pi=10.3
+Reading pulse=- spo2=- pi=-
