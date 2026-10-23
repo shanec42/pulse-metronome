@@ -47,4 +47,4 @@ If this policy changes, the updated version will be published at this address an
 
 ## Contact
 
-Questions about this policy: open an issue on GitHub: (GitHub link — available when the repository is public).
+Questions about this policy: open an issue on GitHub: [github.com/shanec42/pulse-metronome/issues](https://github.com/shanec42/pulse-metronome/issues).

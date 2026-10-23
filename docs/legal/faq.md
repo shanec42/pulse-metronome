@@ -66,11 +66,11 @@ Android requires these specific permissions before any app can use the matching 
 
 ## Is it free? Is it open source?
 
-Yes, it's free with no ads. The source code is public on GitHub: (GitHub link — available when the repository is public).
+Yes, it's free with no ads. The source code is public on GitHub: [github.com/shanec42/pulse-metronome](https://github.com/shanec42/pulse-metronome).
 
 ## How do I report a problem or ask a question?
 
-Open an issue on GitHub: (GitHub link — available when the repository is public).
+Open an issue on GitHub: [github.com/shanec42/pulse-metronome/issues](https://github.com/shanec42/pulse-metronome/issues).
 
 ## Privacy policy
 
