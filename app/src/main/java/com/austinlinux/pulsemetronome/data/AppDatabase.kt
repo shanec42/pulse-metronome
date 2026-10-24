@@ -6,19 +6,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
 
 const val DB_NAME = "pulse_metronome.db"
 
-/** Oldest schema an installed app can hold (the app was unreleased before this); no upgrade code exists below it. */
-const val DB_BASELINE_VERSION = 3
-
-/** v3 -> v4: Focus % per session (null for sessions saved before it, and for monitor / no-pulse ones). */
-val MIGRATION_3_4 = object : Migration(3, 4) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE sessions ADD COLUMN focusPercent INTEGER")
-    }
-}
+/** Production 1: the first released schema; no upgrade code exists below it. */
+const val DB_BASELINE_VERSION = 1
 
 /**
  * Every upgrade step from DB_BASELINE_VERSION to AppDatabase.VERSION. Bumping the version
@@ -26,7 +18,7 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
  * it (MigrationGuardTest fails otherwise). There is deliberately no destructive fallback:
  * DatabaseOpener moves an un-upgradable database into a backup instead of wiping it.
  */
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_3_4)
+val ALL_MIGRATIONS: Array<Migration> = arrayOf()
 
 /** Session history. Version bumps need a Migration in ALL_MIGRATIONS, the exported schema, and MigrationTest coverage (see ALL_MIGRATIONS). */
 @Database(entities = [SessionEntity::class, PulseSampleEntity::class], version = AppDatabase.VERSION, exportSchema = true)
@@ -36,7 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun pulseSampleDao(): PulseSampleDao
 
     companion object {
-        const val VERSION = 4
+        const val VERSION = 1
         @Volatile private var INSTANCE: AppDatabase? = null
 
         /** App-scoped singleton, shared by the app and SessionForegroundService. */

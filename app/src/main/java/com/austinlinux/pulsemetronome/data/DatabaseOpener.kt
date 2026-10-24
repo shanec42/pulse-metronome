@@ -68,13 +68,14 @@ class DatabaseOpener(
     private val dbName: String = DB_NAME,
     private val backupDir: File = defaultBackupDir(context),
     private val build: (Context, String) -> AppDatabase = ::buildRoom,
-    private val timestamp: () -> String = { SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) }
+    private val timestamp: () -> String = { SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) },
+    private val currentVersion: Int = AppDatabase.VERSION
 ) {
     fun open(): AppDatabase {
         val file = context.getDatabasePath(dbName)
         val exists = file.exists()
         val onDisk = if (exists) readUserVersion(file) else null
-        val plan = planOpen(onDisk, AppDatabase.VERSION, exists)
+        val plan = planOpen(onDisk, currentVersion, exists)
         if (plan == OpenPlan.UPGRADE) {
             runCatching { copyAside(file, PRE_UPGRADE_PREFIX, onDisk!!) }.onFailure { Log.w(TAG, "pre-upgrade copy failed", it) }
         }
@@ -90,7 +91,7 @@ class DatabaseOpener(
             db.openHelper.writableDatabase
             db
         } catch (e: Exception) {
-            Log.e(TAG, "database could not be opened at v${AppDatabase.VERSION} (on disk v$onDisk); moving it aside", e)
+            Log.e(TAG, "database could not be opened at v$currentVersion (on disk v$onDisk); moving it aside", e)
             runCatching { db.close() }
             // Moving can only fail on a broken disk; crashing then is the only outcome that deletes nothing.
             runCatching { moveAside(file, onDisk ?: 0) }.getOrElse {

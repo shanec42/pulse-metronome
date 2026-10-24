@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 3,
-    "identityHash": "5bd6a4ab76c3be0947f1c16ed4251de5",
+    "version": 1,
+    "identityHash": "ff188d7f58498ecb09212d25088ea67a",
     "entities": [
       {
         "tableName": "sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startTimestamp` INTEGER NOT NULL, `endTimestamp` INTEGER, `targetBpm` INTEGER NOT NULL, `rampDurationMin` INTEGER NOT NULL, `totalDurationMin` INTEGER NOT NULL, `maxOffset` INTEGER NOT NULL, `startingBpm` INTEGER NOT NULL, `startingBpmSource` TEXT NOT NULL, `endingBpm` INTEGER, `endReason` TEXT, `targetReached` INTEGER NOT NULL, `highestPulse` INTEGER, `lowestPulse` INTEGER, `pulseLostAtElapsedMs` INTEGER, `monitor` INTEGER NOT NULL DEFAULT 0)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startTimestamp` INTEGER NOT NULL, `endTimestamp` INTEGER, `targetBpm` INTEGER NOT NULL, `rampDurationMin` INTEGER NOT NULL, `totalDurationMin` INTEGER NOT NULL, `maxOffset` INTEGER NOT NULL, `startingBpm` INTEGER NOT NULL, `startingBpmSource` TEXT NOT NULL, `endingBpm` INTEGER, `endReason` TEXT, `targetReached` INTEGER NOT NULL, `highestPulse` INTEGER, `lowestPulse` INTEGER, `pulseLostAtElapsedMs` INTEGER, `monitor` INTEGER NOT NULL DEFAULT 0, `focusPercent` INTEGER)",
         "fields": [
           {
             "fieldPath": "id",
@@ -23,8 +23,7 @@
           {
             "fieldPath": "endTimestamp",
             "columnName": "endTimestamp",
-            "affinity": "INTEGER",
-            "notNull": false
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "targetBpm",
@@ -65,14 +64,12 @@
           {
             "fieldPath": "endingBpm",
             "columnName": "endingBpm",
-            "affinity": "INTEGER",
-            "notNull": false
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "endReason",
             "columnName": "endReason",
-            "affinity": "TEXT",
-            "notNull": false
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "targetReached",
@@ -83,20 +80,17 @@
           {
             "fieldPath": "highestPulse",
             "columnName": "highestPulse",
-            "affinity": "INTEGER",
-            "notNull": false
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "lowestPulse",
             "columnName": "lowestPulse",
-            "affinity": "INTEGER",
-            "notNull": false
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "pulseLostAtElapsedMs",
             "columnName": "pulseLostAtElapsedMs",
-            "affinity": "INTEGER",
-            "notNull": false
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "monitor",
@@ -104,6 +98,11 @@
             "affinity": "INTEGER",
             "notNull": true,
             "defaultValue": "0"
+          },
+          {
+            "fieldPath": "focusPercent",
+            "columnName": "focusPercent",
+            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -111,9 +110,7 @@
           "columnNames": [
             "id"
           ]
-        },
-        "indices": [],
-        "foreignKeys": []
+        }
       },
       {
         "tableName": "pulse_samples",
@@ -140,8 +137,7 @@
           {
             "fieldPath": "pulse",
             "columnName": "pulse",
-            "affinity": "INTEGER",
-            "notNull": false
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "metronomeBpm",
@@ -182,10 +178,9 @@
         ]
       }
     ],
-    "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5bd6a4ab76c3be0947f1c16ed4251de5')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ff188d7f58498ecb09212d25088ea67a')"
     ]
   }
 }

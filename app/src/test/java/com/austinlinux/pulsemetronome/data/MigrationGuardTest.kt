@@ -19,6 +19,6 @@ class MigrationGuardTest {
 
     @Test
     fun `baseline is frozen`() {
-        assertEquals("DB_BASELINE_VERSION is frozen at 3; add a Migration instead of raising it", 3, DB_BASELINE_VERSION)
+        assertEquals("DB_BASELINE_VERSION is frozen at 1; add a Migration instead of raising it", 1, DB_BASELINE_VERSION)
     }
 }

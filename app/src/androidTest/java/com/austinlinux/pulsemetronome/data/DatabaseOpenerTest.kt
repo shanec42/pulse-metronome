@@ -22,7 +22,8 @@ class DatabaseOpenerTest {
     private lateinit var backups: File
     private var stamp = 0
 
-    private fun opener() = DatabaseOpener(context, name, backups, timestamp = { "20261010-0000%02d".format(stamp++) })
+    private fun opener(currentVersion: Int = AppDatabase.VERSION) =
+        DatabaseOpener(context, name, backups, timestamp = { "20261010-0000%02d".format(stamp++) }, currentVersion = currentVersion)
 
     @Before fun setUp() {
         context.deleteDatabase(name)
@@ -68,8 +69,8 @@ class DatabaseOpenerTest {
 
     @Test fun olderVersionWithNoMigrationCopiesFirstThenFailsSafely() = runBlocking {
         opener().open().apply { sessionDao().insert(session()); close() }
-        setUserVersion(AppDatabase.VERSION - 1)
-        opener().open().close()
+        setUserVersion(AppDatabase.VERSION + 1)
+        opener(currentVersion = AppDatabase.VERSION + 2).open().close()
         assertNotNull(backups.listFiles()!!.singleOrNull { it.name.startsWith(PRE_UPGRADE_PREFIX) })
         assertNotNull(backups.listFiles()!!.singleOrNull { it.name.startsWith(FAILED_PREFIX) && it.name.endsWith(".db") })
     }
@@ -81,8 +82,8 @@ class DatabaseOpenerTest {
 
     @Test fun olderVersionFailureKeepsReadableCopiesAndMarker() = runBlocking {
         opener().open().apply { sessionDao().insert(session()); close() }
-        setUserVersion(AppDatabase.VERSION - 1)
-        opener().open().close()
+        setUserVersion(AppDatabase.VERSION + 1)
+        opener(currentVersion = AppDatabase.VERSION + 2).open().close()
         val pre = backups.listFiles()!!.single { it.name.startsWith(PRE_UPGRADE_PREFIX) }
         val failed = backups.listFiles()!!.single { it.name.startsWith(FAILED_PREFIX) && it.name.endsWith(".db") }
         for (f in listOf(pre, failed)) SQLiteDatabase.openDatabase(f.path, null, SQLiteDatabase.OPEN_READONLY).use { old ->
