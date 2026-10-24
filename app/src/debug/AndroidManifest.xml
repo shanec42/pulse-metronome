@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <!-- Debug builds only: lets debug capture record the system's kill lines once granted with
-         `adb shell pm grant com.austinlinux.dfmetronome android.permission.READ_LOGS`. -->
+         `adb shell pm grant com.austinlinux.pulsemetronome.debug android.permission.READ_LOGS`. -->
     <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />
     <application>
         <!-- Debug builds only: shares the debug capture zip from Settings. -->

@@ -21,12 +21,12 @@ val copyLegalDocs by tasks.registering(Sync::class) {
 tasks.withType<Test>().configureEach { inputs.dir(rootProject.file("docs/legal")).withPropertyName("legalDocs") }
 
 android {
-    namespace = "com.austinlinux.dfmetronome"
+    namespace = "com.austinlinux.pulsemetronome"
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.austinlinux.dfmetronome"
+        applicationId = "com.austinlinux.pulsemetronome"
         minSdk = 26
         targetSdk = 36
         versionCode = 3
