@@ -22,9 +22,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.austinlinux.pulsemetronome.ui.theme.MessageBar
@@ -56,10 +63,7 @@ fun UpgradeFailedScreen(onSaveBackup: () -> Unit, onContinue: () -> Unit, messag
                     BodyText("This version of Pulse Metronome couldn't read your existing session history, so it has started a new, empty history. Everything else works as normal, and new sessions are saved as usual.")
                     BodyText("Your earlier history has been kept as a backup on this phone and should be safe. If something on the phone itself has failed, the backup may be affected too, and that's outside what the app can fix.")
                     Box(Modifier.fillMaxWidth().padding(top = 14.dp).height(1.dp).background(PmColors.Hairline))
-                    Text(
-                        "Please report the problem on GitHub so it can be looked into: (GitHub link — available when the repository is public)",
-                        style = TextStyle(fontFamily = PmFonts.Body, fontSize = 14.sp, lineHeight = 22.sp, color = PmColors.Muted)
-                    )
+                    ReportProblemText()
                 }
             }
             Row(
@@ -73,6 +77,23 @@ fun UpgradeFailedScreen(onSaveBackup: () -> Unit, onContinue: () -> Unit, messag
         // Lifted so it sits above the pinned buttons instead of covering them.
         if (message != null) MessageBar(message, Modifier.align(Alignment.BottomCenter).padding(bottom = 68.dp))
     }
+}
+
+private const val ISSUES_URL = "https://github.com/shanec42/pulse-metronome/issues"
+
+/** The "report it on GitHub" line, with the issues page as a tappable link styled like the legal docs' links. */
+@Composable
+private fun ReportProblemText() {
+    val uriHandler = LocalUriHandler.current
+    val linkStyle = SpanStyle(color = PmColors.Brass, fontWeight = FontWeight.Medium, textDecoration = TextDecoration.Underline)
+    val text = buildAnnotatedString {
+        append("Please report the problem on GitHub so it can be looked into: ")
+        // openUri throws when no app can handle the link (e.g. no browser); leave the link inert.
+        withLink(LinkAnnotation.Clickable(ISSUES_URL, TextLinkStyles(linkStyle)) {
+            try { uriHandler.openUri(ISSUES_URL) } catch (_: IllegalArgumentException) { }
+        }) { append("github.com/shanec42/pulse-metronome/issues ↗") }
+    }
+    Text(text, style = TextStyle(fontFamily = PmFonts.Body, fontSize = 14.sp, lineHeight = 22.sp, color = PmColors.Muted))
 }
 
 @Composable
