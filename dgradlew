@@ -13,4 +13,4 @@ if [ -n "$keys_dir" ]; then
     mount_args=(-v "$resolved:/keys:ro")
 fi
 
-exec docker compose run --rm "${mount_args[@]}" android ./gradlew "$@"
+exec docker compose run --rm ${mount_args[@]+"${mount_args[@]}"} android ./gradlew "$@"
