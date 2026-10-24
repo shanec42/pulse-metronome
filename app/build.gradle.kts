@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -20,6 +22,42 @@ val copyLegalDocs by tasks.registering(Sync::class) {
 
 tasks.withType<Test>().configureEach { inputs.dir(rootProject.file("docs/legal")).withPropertyName("legalDocs") }
 
+// Release signing comes from an untracked keystore.properties (storeFile, storePassword, keyAlias,
+// keyPassword). A missing file means an unsigned release; a broken file is recorded and fails
+// checkReleaseSigning instead of failing every build, so debug builds keep working.
+var releaseSigningError: String? = null
+val releaseSigningProps = rootProject.file("keystore.properties")
+val releaseSigningConfig = if (!releaseSigningProps.exists()) null else {
+    val props = Properties().apply { releaseSigningProps.inputStream().use { load(it) } }
+    fun prop(key: String) = props.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() }
+    val missing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").firstOrNull { prop(it) == null }
+    if (missing != null) {
+        releaseSigningError = "keystore.properties is missing $missing"
+        null
+    } else {
+        val rawPath = prop("storeFile")!!
+        val storeFileResolved = if (File(rawPath).isAbsolute) File(rawPath) else rootProject.file(rawPath)
+        if (!storeFileResolved.exists()) {
+            releaseSigningError = "keystore.properties: storeFile $rawPath not found"
+            null
+        } else {
+            android.signingConfigs.create("release") {
+                storeFile = storeFileResolved
+                storePassword = prop("storePassword")
+                keyAlias = prop("keyAlias")
+                keyPassword = prop("keyPassword")
+            }
+        }
+    }
+}
+
+val checkReleaseSigning by tasks.registering {
+    val error = releaseSigningError
+    doLast { if (error != null) throw GradleException(error) }
+}
+// preReleaseBuild is created by AGP after evaluation, so it has to be matched lazily.
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleaseSigning) }
+
 android {
     namespace = "com.austinlinux.pulsemetronome"
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
@@ -39,6 +77,13 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             manifestPlaceholders["appLabel"] = "Pulse Metronome (dev)"
+        }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Signed only when keystore.properties is complete; never falls back to the debug key.
+            if (releaseSigningConfig != null) signingConfig = releaseSigningConfig
         }
     }
 

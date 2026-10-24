@@ -1,3 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec docker compose run --rm android ./gradlew "$@"
+
+# Optional: mount the host folder holding the release keystore read-only at /keys.
+keys_dir="${PULSE_KEYS_DIR:-}"
+mount_args=()
+if [ -n "$keys_dir" ]; then
+    if ! resolved="$(realpath -e -- "$keys_dir" 2>/dev/null)" || [ ! -d "$resolved" ]; then
+        echo "PULSE_KEYS_DIR=$keys_dir is not a directory" >&2
+        exit 1
+    fi
+    # Absolute path so Docker never treats a relative name as a named volume.
+    mount_args=(-v "$resolved:/keys:ro")
+fi
+
+exec docker compose run --rm "${mount_args[@]}" android ./gradlew "$@"
