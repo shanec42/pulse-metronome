@@ -29,9 +29,17 @@ android {
         applicationId = "com.austinlinux.pulsemetronome"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 1
+        versionName = "1.0.0"
+        manifestPlaceholders["appLabel"] = "Pulse Metronome"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "Pulse Metronome (dev)"
+        }
     }
 
     compileOptions {

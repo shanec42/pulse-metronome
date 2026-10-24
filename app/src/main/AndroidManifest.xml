@@ -16,7 +16,7 @@
         android:name=".PulseMetronomeApp"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="Pulse Metronome"
+        android:label="${appLabel}"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:theme="@style/Theme.PulseMetronome">
