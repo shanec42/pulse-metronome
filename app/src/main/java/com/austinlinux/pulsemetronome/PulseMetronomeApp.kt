@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.map
 import com.austinlinux.pulsemetronome.ble.BleModule
 import com.austinlinux.pulsemetronome.ble.SharedPreferencesDeviceAddressStore
 import com.austinlinux.pulsemetronome.data.AppDatabase
+import com.austinlinux.pulsemetronome.source.PulseSource
+import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import com.austinlinux.pulsemetronome.data.IncompleteSessionRecovery
 import com.austinlinux.pulsemetronome.ui.history.cleanUpPendingDeletes
 import com.austinlinux.pulsemetronome.ui.settings.SettingsRepository
@@ -34,6 +36,11 @@ class PulseMetronomeApp : Application() {
     // or SessionForegroundService reusing it on session start).
     val bleModule: BleModule by lazy {
         BleModule(this, SharedPreferencesDeviceAddressStore(this))
+    }
+
+    /** The session's pulse provider for [kind]; only the oximeter exists so far. */
+    fun pulseSourceFor(kind: PulseSourceKind): PulseSource = when (kind) {
+        PulseSourceKind.OXIMETER, PulseSourceKind.WATCH -> bleModule
     }
 
     val database: AppDatabase by lazy { AppDatabase.instance(this) }

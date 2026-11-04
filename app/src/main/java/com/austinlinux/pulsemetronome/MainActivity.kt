@@ -67,6 +67,7 @@ import com.austinlinux.pulsemetronome.engine.SessionConfig
 import com.austinlinux.pulsemetronome.permissions.PermissionsManager
 import com.austinlinux.pulsemetronome.service.SessionForegroundService
 import com.austinlinux.pulsemetronome.service.SessionStateBus
+import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import com.austinlinux.pulsemetronome.ui.history.HistoryScreen
 import com.austinlinux.pulsemetronome.ui.history.HistoryViewModel
 import com.austinlinux.pulsemetronome.ui.legal.LegalDoc
@@ -340,7 +341,8 @@ class MainActivity : ComponentActivity() {
                                             SessionStateBus.clearEndedSessionId()
                                             val intent = SessionForegroundService.newIntent(
                                                 app, config, settings.alarmType, startMode,
-                                                saveToHistory = settings.historyEnabled
+                                                saveToHistory = settings.historyEnabled,
+                                                sourceKind = PulseSourceKind.OXIMETER
                                             )
                                             startForegroundService(intent)
                                             navController.navigate(Routes.LIVE_SESSION)
