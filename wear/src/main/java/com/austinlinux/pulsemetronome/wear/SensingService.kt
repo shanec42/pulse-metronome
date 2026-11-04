@@ -1,11 +1,13 @@
 package com.austinlinux.pulsemetronome.wear
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 
@@ -23,7 +25,22 @@ class SensingService : Service() {
             .setContentTitle("Pulse Metronome")
             .setOngoing(true)
             .build()
-        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)
+        try {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)
+        } catch (e: SecurityException) {
+            // Missing BODY_SENSORS/READ_HEART_RATE: a health FGS cannot start without them.
+            Log.w(TAG, "Health foreground service not permitted", e)
+            stopSelf()
+            return START_NOT_STICKY
+        } catch (e: RuntimeException) {
+            // API 31+ throws ForegroundServiceStartNotAllowedException for a blocked background start.
+            if (Build.VERSION.SDK_INT >= 31 && e is ForegroundServiceStartNotAllowedException) {
+                Log.w(TAG, "Background foreground start blocked", e)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            throw e
+        }
         Log.i(TAG, "SensingService running in the foreground")
         return START_NOT_STICKY
     }
