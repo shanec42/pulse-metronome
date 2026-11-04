@@ -15,7 +15,8 @@ case "${1:-help}" in
     install)
         # The image's sdkmanager bootstraps a cmdline-tools copy inside the local SDK, so
         # avdmanager resolves system images from there rather than from /opt/android-sdk.
-        yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root="$sdk" --licenses > /dev/null
+        # `yes` dies of SIGPIPE when sdkmanager stops reading; under pipefail that would abort the script.
+        (yes || true) | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root="$sdk" --licenses > /dev/null
         /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root="$sdk" \
             "cmdline-tools;latest" "platform-tools" "emulator" "$watch_image" "$phone_image"
         echo no | "$sdk/cmdline-tools/latest/bin/avdmanager" create avd --force \
