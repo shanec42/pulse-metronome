@@ -1,8 +1,8 @@
 package com.austinlinux.pulsemetronome.debug
 
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.util.Log
+import com.austinlinux.pulsemetronome.BuildConfig
 import java.io.File
 import java.util.TimeZone
 import java.util.concurrent.CountDownLatch
@@ -53,9 +53,8 @@ object DebugCapture {
     @Volatile var enabled: Boolean = false
         private set
 
-    /** True when this is a debuggable build; release builds never capture. */
-    fun isAvailable(context: Context): Boolean =
-        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    /** True in debug and watchtest builds; release builds never capture. */
+    fun isAvailable(context: Context): Boolean = BuildConfig.DEBUG_TOOLS
 
     /** Remembers the context and capture directory; idempotent and starts nothing. */
     @Synchronized

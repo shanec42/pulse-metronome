@@ -14,11 +14,11 @@ import android.bluetooth.le.ScanSettings
 import android.os.ParcelUuid
 import android.os.PowerManager
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.austinlinux.pulsemetronome.BuildConfig
 import com.austinlinux.pulsemetronome.ble.protocol.FrameDecoder
 import com.austinlinux.pulsemetronome.ble.protocol.GattOp
 import com.austinlinux.pulsemetronome.ble.protocol.GattOpQueue
@@ -105,7 +105,7 @@ class BleModule(
         }
     }
 
-    private val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    private val debuggable = BuildConfig.DEBUG_TOOLS
 
     // Threading: ops, protocol, keep-alive, op timers and closing are only touched on
     // mainHandler. GATT callbacks arrive on binder threads, so they post to mainHandler before
