@@ -8,6 +8,8 @@ captures/
 *.iml
 .DS_Store
 /local.properties
+# Emulator SDK, system images and AVDs for ./demulator (multi-GB, local only)
+/.android-emulator/
 
 # Release signing: never commit the upload key or its passwords
 *.jks

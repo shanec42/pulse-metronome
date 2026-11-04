@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      target: sdk
     volumes:
       - .:/workspace
     working_dir: /workspace
@@ -22,4 +23,26 @@ services:
     # `network_mode: host` isn't supported the same way and connectedAndroidTest would need a
     # different mechanism (decided at implementation time if that ever applies - this dev
     # machine is Linux, per the session's environment context, so it's not addressed further).
+    network_mode: host
+
+  # Android emulators (Wear OS watch + phone) for ./demulator. KVM is passed through; the SDK,
+  # system images and AVDs live in ./.android-emulator (git-ignored). Windows open on the host's
+  # X display; host networking lets the host's adb server see the emulators directly.
+  emulator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: emulator
+    volumes:
+      - .:/workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority:ro
+    working_dir: /workspace
+    environment:
+      - HOME=/workspace/.android-emulator/home
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
+    devices:
+      - /dev/kvm
+    user: "${UID:-1000}:${GID:-1000}"
     network_mode: host

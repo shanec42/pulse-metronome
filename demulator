@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Android emulators in Docker: ./demulator install | watch | phone (HEADLESS=1 for no window).
+# Run watch and phone in separate terminals; both appear in the host's `adb devices`.
+set -euo pipefail
+cd "$(dirname "$0")"
+exec docker compose run --rm -e HEADLESS="${HEADLESS:-0}" emulator bash docker/emulator.sh "$@"
