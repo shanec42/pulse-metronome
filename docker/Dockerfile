@@ -23,7 +23,7 @@ WORKDIR /workspace
 FROM sdk AS emulator
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libegl1 libgbm1 libdrm2 libnss3 libdbus-1-3 libfontconfig1 libpulse0 libasound2 \
-        libx11-6 libx11-xcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 \
+        libx11-6 libx11-xcb1 libsm6 libice6 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 \
         libxrandr2 libxrender1 libxtst6 libxkbcommon0 libxkbcommon-x11-0 libxkbfile1 \
         libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
         libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
