@@ -44,5 +44,9 @@ services:
       - XAUTHORITY=/tmp/.Xauthority
     devices:
       - /dev/kvm
+    # The host grants /dev/kvm through an ACL, which Docker doesn't copy into the container's
+    # device node (root:kvm 0660), so join the host's kvm group by id (./demulator sets KVM_GID).
+    group_add:
+      - "${KVM_GID:-993}"
     user: "${UID:-1000}:${GID:-1000}"
     network_mode: host
