@@ -85,8 +85,8 @@ android {
         applicationId = "com.austinlinux.pulsemetronome"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = (project.property("pm.versionCode") as String).toInt()
+        versionName = project.property("pm.versionName") as String
         manifestPlaceholders["appLabel"] = "Pulse Metronome"
         buildConfigField("boolean", "DEBUG_TOOLS", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 rootProject.name = "PulseMetronome"
 include(":app")
 include(":wearlink")
+include(":wear")
