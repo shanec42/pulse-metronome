@@ -56,7 +56,25 @@ val checkReleaseSigning by tasks.registering {
     doLast { if (error != null) throw GradleException(error) }
 }
 // preReleaseBuild is created by AGP after evaluation, so it has to be matched lazily.
-tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleaseSigning) }
+tasks.matching { it.name == "preReleaseBuild" || it.name == "preWatchtestBuild" }.configureEach { dependsOn(checkReleaseSigning) }
+
+// Guards the release privacy promise: a library must not sneak INTERNET, READ_LOGS or a FileProvider
+// into the release manifest. Remedy: src/release/AndroidManifest.xml with tools:node="remove".
+val releaseManifestFile = objects.fileProperty()
+val verifyReleaseNoNetwork by tasks.registering {
+    val manifest = releaseManifestFile
+    inputs.file(manifest)
+    doLast {
+        val text = manifest.get().asFile.readText()
+        val forbidden = listOf(
+            "android.permission.INTERNET",
+            "android.permission.READ_LOGS",
+            "androidx.core.content.FileProvider",
+        ).filter { text.contains(it) }
+        if (forbidden.isNotEmpty()) throw GradleException("Release merged manifest contains: ${forbidden.joinToString()}")
+    }
+}
+tasks.matching { it.name == "assembleRelease" }.configureEach { dependsOn(verifyReleaseNoNetwork) }
 
 android {
     namespace = "com.austinlinux.pulsemetronome"
@@ -70,6 +88,7 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         manifestPlaceholders["appLabel"] = "Pulse Metronome"
+        buildConfigField("boolean", "DEBUG_TOOLS", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -77,6 +96,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             manifestPlaceholders["appLabel"] = "Pulse Metronome (dev)"
+            buildConfigField("boolean", "DEBUG_TOOLS", "true")
         }
         release {
             isMinifyEnabled = true
@@ -85,15 +105,41 @@ android {
             // Signed only when keystore.properties is complete; never falls back to the debug key.
             if (releaseSigningConfig != null) signingConfig = releaseSigningConfig
         }
+        // Release-like build with a different package, for testing the watch pulse source on real hardware.
+        create("watchtest") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".watchtest"
+            manifestPlaceholders["appLabel"] = "Pulse Metronome (watch test)"
+            matchingFallbacks += "release"
+            buildConfigField("boolean", "DEBUG_TOOLS", "true")
+            if (releaseSigningConfig != null) signingConfig = releaseSigningConfig
+        }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     testOptions { unitTests.isIncludeAndroidResources = true }
     sourceSets.getByName("main").assets.srcDir(legalAssetsDir.get().asFile)
+    // debug and watchtest share one manifest/res/java tree; a source set has a single manifest, so it lives in debugTools.
+    listOf("debug", "watchtest").forEach { name ->
+        sourceSets.getByName(name).apply {
+            manifest.srcFile("src/debugTools/AndroidManifest.xml")
+            res.srcDirs("src/debugTools/res")
+            java.srcDirs("src/debugTools/java")
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withName("release")) { variant ->
+        releaseManifestFile.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.MERGED_MANIFEST))
+    }
 }
 
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }

@@ -1,4 +1,5 @@
 <resources>
     <color name="pm_background">#17120F</color>
     <color name="pm_red">#D4343A</color>
+    <color name="pm_green">#5FBF7A</color>
 </resources>
