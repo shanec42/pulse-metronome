@@ -7,6 +7,7 @@ import com.austinlinux.pulsemetronome.ble.ScanOutcome
 import com.austinlinux.pulsemetronome.engine.DescentPattern
 import com.austinlinux.pulsemetronome.engine.NoPulseDescent
 import com.austinlinux.pulsemetronome.engine.StartMode
+import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,7 +47,10 @@ fun rampBump(ramp: Int?, total: Int?, delta: Int): RampBump {
 }
 
 /** Which start mode the Start button means: no meter and no waiting means a no-pulse, schedule-driven session. */
-fun resolveStartMode(waitForPulse: Boolean, meterConnected: Boolean, monitor: Boolean = false): StartMode = when {
+fun resolveStartMode(waitForPulse: Boolean, meterConnected: Boolean, monitor: Boolean = false,
+    source: PulseSourceKind = PulseSourceKind.OXIMETER
+): StartMode = when {
+    source == PulseSourceKind.WATCH -> StartMode.WHEN_PULSE_DETECTED
     monitor -> StartMode.WHEN_PULSE_DETECTED
     waitForPulse -> StartMode.WHEN_PULSE_DETECTED
     meterConnected -> StartMode.NOW
@@ -60,8 +64,12 @@ data class SetupDisplay(
 )
 
 /** What Setup shows for the current mode: Starting BPM and "Start without meter" only for a no-pulse start. */
-fun setupDisplay(waitForPulse: Boolean, meterConnected: Boolean, monitor: Boolean = false): SetupDisplay =
+fun setupDisplay(
+    waitForPulse: Boolean, meterConnected: Boolean, monitor: Boolean = false,
+    source: PulseSourceKind = PulseSourceKind.OXIMETER
+): SetupDisplay =
     if (monitor) SetupDisplay(false, "Start monitoring", showTargetAndRamp = false, showWaitForPulse = false)
+    else if (source == PulseSourceKind.WATCH) SetupDisplay(false, "Start when pulse is steady", showWaitForPulse = false)
     else when (resolveStartMode(waitForPulse, meterConnected)) {
         StartMode.NO_PULSE -> SetupDisplay(true, "Start without meter")
         StartMode.NOW -> SetupDisplay(false, "Start")
@@ -72,15 +80,18 @@ fun setupDisplay(waitForPulse: Boolean, meterConnected: Boolean, monitor: Boolea
 fun startEnabled(
     formValid: Boolean, waitForPulse: Boolean, meterConnected: Boolean, bleGranted: Boolean,
     scanInProgress: Boolean, startingBpm: Int?, targetBpm: Int?,
-    monitor: Boolean = false, totalDurationMin: Int? = null
+    monitor: Boolean = false, totalDurationMin: Int? = null,
+    source: PulseSourceKind = PulseSourceKind.OXIMETER
 ): Boolean {
+    // The Watch link has its own permissions, so the phone's Bluetooth grant is irrelevant to it.
+    val bleOk = bleGranted || source == PulseSourceKind.WATCH
     // Monitor has no target or ramp, so only Bluetooth and a valid total matter (formValid also checks the hidden fields).
-    if (monitor) return bleGranted && totalDurationMin != null && totalDurationMin > 0
+    if (monitor) return bleOk && totalDurationMin != null && totalDurationMin > 0
     if (!formValid) return false
-    return when (resolveStartMode(waitForPulse, meterConnected)) {
+    return when (resolveStartMode(waitForPulse, meterConnected, source = source)) {
         StartMode.NO_PULSE -> !scanInProgress && startingBpm != null && startingBpm in 30..200
         StartMode.NOW -> bleGranted && !scanInProgress
-        StartMode.WHEN_PULSE_DETECTED -> bleGranted
+        StartMode.WHEN_PULSE_DETECTED -> bleOk
     }
 }
 
