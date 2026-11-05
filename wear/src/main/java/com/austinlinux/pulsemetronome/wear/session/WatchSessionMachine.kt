@@ -14,7 +14,8 @@ sealed interface WatchUiState {
     object PermissionDenied : WatchUiState
     object Ready : WatchUiState
     object FindingPulse : WatchUiState
-    data class Sensing(val bpm: Int) : WatchUiState
+    /** [sampleSeq] changes on every sample so equal BPMs still produce a new state (the ECG sweep restarts on it). */
+    data class Sensing(val bpm: Int, val sampleSeq: Long = 0) : WatchUiState
     object ContactLost : WatchUiState
     object LinkLost : WatchUiState
     object StoppedTrying : WatchUiState
@@ -42,6 +43,7 @@ class WatchSessionMachine(
     private var lastPhoneMs = 0L
     private var lastSentMs = 0L
     private var linkLost = false
+    private var sampleSeq = 0L
     private var base: WatchUiState = WatchUiState.Ready
 
     /** Handles Start; a repeat of the active session is a no-op that returns the same Ack. */
@@ -86,7 +88,7 @@ class WatchSessionMachine(
     fun onSample(bpm: Int) {
         val sid = sessionId ?: return
         linkLost = false
-        publish(WatchUiState.Sensing(bpm))
+        publish(WatchUiState.Sensing(bpm, ++sampleSeq))
         send(WatchMessage.Sample(sid, bpm))
     }
 

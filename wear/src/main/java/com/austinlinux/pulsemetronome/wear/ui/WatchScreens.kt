@@ -52,10 +52,8 @@ fun WatchScreen(
     systemStoppedPrompting: Boolean,
     onPrimary: () -> Unit,
 ) {
-    val sessionRunning = state is WatchUiState.Sensing || state == WatchUiState.FindingPulse ||
-        state == WatchUiState.ContactLost || state == WatchUiState.LinkLost
-    if (ambient && sessionRunning) {
-        AmbientScreen(time)
+    if (ambient) {
+        AmbientScreen(state, time, systemStoppedPrompting)
         return
     }
     val copy = watchCopy(state, systemStoppedPrompting)
@@ -131,6 +129,7 @@ private fun MeasurementScreen(state: WatchUiState, copy: WatchCopy) {
             else -> WatchEcgMode.FLAT
         },
         bpm = bpm ?: 60,
+        sampleSeq = (state as? WatchUiState.Sensing)?.sampleSeq ?: 0L,
         animate = true,
     )
     copy.body?.let {
@@ -140,18 +139,30 @@ private fun MeasurementScreen(state: WatchUiState, copy: WatchCopy) {
     }
 }
 
-/** Black always-on face: a hairline glyph and SENSING, nothing animated. */
+/** Black always-on face, no fills and no animation: SENSING / PHONE LINK while a session runs, the screen's own text otherwise. */
 @Composable
-private fun AmbientScreen(time: String) {
+private fun AmbientScreen(state: WatchUiState, time: String, systemStoppedPrompting: Boolean) {
+    val ink = WatchColors.AmbientInk
+    val copy = watchCopy(state, systemStoppedPrompting)
     Box(Modifier.fillMaxSize().background(WatchColors.AmbientBg)) {
-        TimeArc(time, WatchColors.AmbientInk)
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            AppGlyph(20.dp, WatchColors.AmbientInk, 1.1f)
+        TimeArc(time, ink)
+        Column(
+            Modifier.fillMaxSize().padding(start = 30.dp, end = 30.dp, top = 32.dp, bottom = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            AppGlyph(20.dp, ink, 1.1f)
             Spacer(Modifier.height(7.dp))
-            BasicText(
-                "SENSING",
-                style = WatchType.Status.copy(color = WatchColors.AmbientInk, letterSpacing = 0.12.em),
-            )
+            val mono = WatchType.Status.copy(color = ink, letterSpacing = 0.12.em, textAlign = TextAlign.Center)
+            when (state) {
+                is WatchUiState.Sensing, WatchUiState.FindingPulse, WatchUiState.ContactLost -> BasicText("SENSING", style = mono)
+                WatchUiState.LinkLost -> BasicText("PHONE LINK", style = mono)
+                else -> {
+                    copy.status?.let { BasicText(it.uppercase(), style = mono) }
+                    copy.head?.let { BasicText(it, style = WatchType.Headline.copy(color = ink, textAlign = TextAlign.Center)) }
+                    copy.body?.let { BasicText(it, style = WatchType.Body.copy(color = ink, textAlign = TextAlign.Center)) }
+                }
+            }
         }
     }
 }

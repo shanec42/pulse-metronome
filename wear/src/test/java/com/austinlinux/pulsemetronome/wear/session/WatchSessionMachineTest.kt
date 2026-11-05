@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,7 +32,7 @@ class WatchSessionMachineTest {
         assertEquals(WatchMessage.Ack("s1", true, null), ack)
         assertEquals(WatchUiState.FindingPulse, machine.ui.value)
         machine.onSample(72)
-        assertEquals(WatchUiState.Sensing(72), machine.ui.value)
+        assertEquals(72, (machine.ui.value as WatchUiState.Sensing).bpm)
     }
 
     @Test fun stop_matchingSession_returnsReady() {
@@ -45,7 +46,7 @@ class WatchSessionMachineTest {
         machine.onStart("s1", true)
         machine.onSample(70)
         machine.onStop("other")
-        assertEquals(WatchUiState.Sensing(70), machine.ui.value)
+        assertEquals(70, (machine.ui.value as WatchUiState.Sensing).bpm)
     }
 
     @Test fun contactLost_thenSample_recovers() {
@@ -54,7 +55,7 @@ class WatchSessionMachineTest {
         machine.onContact(lost = true)
         assertEquals(WatchUiState.ContactLost, machine.ui.value)
         machine.onSample(74)
-        assertEquals(WatchUiState.Sensing(74), machine.ui.value)
+        assertEquals(74, (machine.ui.value as WatchUiState.Sensing).bpm)
     }
 
     @Test fun sendFailed_linkLost_thenSuccessfulSend_restoresSensing() {
@@ -63,7 +64,7 @@ class WatchSessionMachineTest {
         machine.onSendFailed()
         assertEquals(WatchUiState.LinkLost, machine.ui.value)
         machine.onSample(71)
-        assertEquals(WatchUiState.Sensing(71), machine.ui.value)
+        assertEquals(71, (machine.ui.value as WatchUiState.Sensing).bpm)
     }
 
     @Test fun noPhoneFor2Minutes_stops() {
@@ -100,7 +101,7 @@ class WatchSessionMachineTest {
         machine.onSample(70)
         val ack = machine.onStart("s1", true)
         assertEquals(WatchMessage.Ack("s1", true, null), ack)
-        assertEquals(WatchUiState.Sensing(70), machine.ui.value)
+        assertEquals(70, (machine.ui.value as WatchUiState.Sensing).bpm)
     }
 
     @Test fun outbox_tagsCurrentSessionId() {
@@ -152,5 +153,13 @@ class WatchSessionMachineTest {
         var n = 0
         while (withTimeoutOrNull(20) { machine.outbox.take(1).toList() }?.isNotEmpty() == true) n++
         n
+    }
+
+    @Test fun equalBpmSamples_produceDistinctStates() {
+        machine.onStart("s1", hasPermission = true)
+        machine.onSample(70)
+        val first = machine.ui.value
+        machine.onSample(70)
+        assertNotEquals(first, machine.ui.value)
     }
 }

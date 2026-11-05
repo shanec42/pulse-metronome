@@ -34,6 +34,8 @@ import java.util.Date
 class WatchActivity : ComponentActivity() {
     private var ambient by mutableStateOf(false)
     private var hasHeart by mutableStateOf(false)
+    private var notificationsAsked by mutableStateOf(false)
+    private var hasNotifications by mutableStateOf(true)
     private var denied by mutableStateOf(false)
     private var stoppedPrompting by mutableStateOf(false)
     private var time by mutableStateOf("")
@@ -62,13 +64,16 @@ class WatchActivity : ComponentActivity() {
             val service by SensingService.uiState.collectAsState()
             val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
                 refreshPermission()
+                notificationsAsked = true // once asked, never nag again: the watch works without the notification
                 denied = !hasHeart
                 // After two denials Android stops prompting: shouldShowRequestPermissionRationale is false while denied.
                 stoppedPrompting = denied && !shouldShowRequestPermissionRationale(heartPermission())
             }
             val state = when {
                 service != WatchUiState.Ready -> service
-                hasHeart -> WatchUiState.Ready
+                hasHeart && (hasNotifications || notificationsAsked) -> WatchUiState.Ready
+                // Heart rate is granted but the Ongoing Activity's notification permission is not: Allow asks for it.
+                hasHeart -> WatchUiState.NeedsPermission
                 denied -> WatchUiState.PermissionDenied
                 else -> WatchUiState.NeedsPermission
             }
@@ -98,6 +103,8 @@ class WatchActivity : ComponentActivity() {
 
     private fun refreshPermission() {
         hasHeart = SensingService.hasHeartPermission(this)
+        hasNotifications = Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         if (hasHeart) {
             denied = false
             stoppedPrompting = false
@@ -110,7 +117,7 @@ class WatchActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 36) "android.permission.health.READ_HEART_RATE" else Manifest.permission.BODY_SENSORS
 
     private fun permissionsToRequest(): Array<String> = buildList {
-        add(heartPermission())
+        if (!hasHeart) add(heartPermission())
         // The Ongoing Activity notification needs this on Android 13+.
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             add(Manifest.permission.POST_NOTIFICATIONS)

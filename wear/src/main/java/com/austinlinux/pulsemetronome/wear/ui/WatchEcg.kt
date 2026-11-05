@@ -1,15 +1,13 @@
 package com.austinlinux.pulsemetronome.wear.ui
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -43,20 +41,23 @@ private fun boardPath(): Path = Path().apply {
  * that sweep once per beat at [bpm], or (for SCAN) a dot scanning the faint trace. [animate] is false in ambient.
  */
 @Composable
-fun WatchEcg(mode: WatchEcgMode, bpm: Int, animate: Boolean, modifier: Modifier = Modifier) {
+fun WatchEcg(mode: WatchEcgMode, bpm: Int, sampleSeq: Long, animate: Boolean, modifier: Modifier = Modifier) {
     val path = remember { boardPath() }
     val measure = remember { PathMeasure().also { it.setPath(path, false) } }
     val total = remember { measure.length }
     val periodMs = if (mode == WatchEcgMode.TRACE) (60_000 / bpm.coerceIn(30, 240)) else 1_600
-    val progress = if (animate && mode != WatchEcgMode.FLAT) {
-        // Keyed on the period so a new BPM restarts the sweep.
-        rememberInfiniteTransition(label = "ecg").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(periodMs, easing = LinearEasing), RepeatMode.Restart),
-            label = "sweep$periodMs",
-        ).value
-    } else 0f
+    val anim = remember { Animatable(0f) }
+    // Restarts on every sample (sampleSeq), on a BPM change and on mode changes, so the sweep stays tied to sample times.
+    LaunchedEffect(sampleSeq, periodMs, animate, mode) {
+        anim.snapTo(0f)
+        if (animate && mode != WatchEcgMode.FLAT) {
+            while (true) {
+                anim.animateTo(1f, tween(periodMs, easing = LinearEasing))
+                anim.snapTo(0f)
+            }
+        }
+    }
+    val progress = anim.value
 
     Canvas(modifier.width(150.dp).height(40.dp)) {
         val unit = size.width / BOARD_W // board units -> px
