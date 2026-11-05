@@ -9,13 +9,9 @@ import com.austinlinux.pulsemetronome.engine.NoPulseDescent
 import com.austinlinux.pulsemetronome.engine.StartMode
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import com.austinlinux.pulsemetronome.source.SourceChoiceStore
-import com.austinlinux.pulsemetronome.source.watch.StartResult
-import com.austinlinux.pulsemetronome.source.watch.WatchAvailability
 import com.austinlinux.pulsemetronome.source.watch.WatchLink
 import com.austinlinux.pulsemetronome.source.watch.WatchPulseSource
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -230,65 +226,47 @@ class SetupViewModel(
     /** The chosen pulse source. */
     val source: StateFlow<PulseSourceKind> = sourceStore.choice
 
+    private val watch = WatchStartCoordinator(
+        scope = viewModelScope,
+        availability = { watchLink.availability() },
+        requestStart = { watchLink.requestStart() },
+        attach = { watchPulseSource.attach(it) },
+        endSession = { watchPulseSource.endSession() },
+        setCard = { _uiState.value = _uiState.value.copy(watchCard = it) },
+        getCard = { _uiState.value.watchCard }
+    )
+
     // One-shot: the watch has acknowledged and is attached, so the Activity should start the session.
-    // A channel (not a SharedFlow) so the event survives Setup being off-screen when the Ack lands.
-    private val watchStartedEvents = Channel<Unit>(Channel.BUFFERED)
-    val watchStarted: Flow<Unit> = watchStartedEvents.receiveAsFlow()
-    private var watchJob: Job? = null
+    val watchStarted: Flow<Unit> = watch.started
 
     /** Switches the source; picking Watch checks for the watch straight away. */
     fun onSourceSelected(kind: PulseSourceKind) {
         if (kind == sourceStore.choice.value) return
         sourceStore.set(kind)
-        watchJob?.cancel()
-        watchJob = null
+        watch.reset()
         _uiState.value = _uiState.value.copy(watchCard = null)
-        if (kind == PulseSourceKind.WATCH) refreshWatch()
+        if (kind == PulseSourceKind.WATCH) watch.refresh()
     }
 
     /** Re-runs the watch availability check (selection, screen resume, "Check again"); ignored while waiting. */
     fun refreshWatch() {
-        if (sourceStore.choice.value != PulseSourceKind.WATCH || watchJob?.isActive == true) return
-        watchJob = viewModelScope.launch {
-            val a = watchLink.availability()
-            _uiState.value = _uiState.value.copy(
-                watchCard = when (a) {
-                    is WatchAvailability.Ready -> WatchCardState.Ready(a.node.displayName)
-                    WatchAvailability.NotFound -> WatchCardState.NotFound
-                }
-            )
-        }
+        if (sourceStore.choice.value == PulseSourceKind.WATCH) watch.refresh()
     }
 
     /** Start with the Watch source: asks the watch to begin and, once it acks, tells the Activity to start the session. */
-    fun startWithWatch() {
-        if (watchJob?.isActive == true && _uiState.value.watchCard == WatchCardState.Waiting) return
-        watchJob?.cancel()
-        _uiState.value = _uiState.value.copy(watchCard = WatchCardState.Waiting)
-        watchJob = viewModelScope.launch {
-            when (val r = watchLink.requestStart()) {
-                is StartResult.Started -> {
-                    // Must precede the service start so no early sample is missed.
-                    watchPulseSource.attach(r)
-                    _uiState.value = _uiState.value.copy(watchCard = WatchCardState.Ready(r.node.displayName))
-                    watchStartedEvents.send(Unit)
-                }
-                is StartResult.CantStart -> _uiState.value = _uiState.value.copy(watchCard = WatchCardState.CantStart(r.reason))
-                StartResult.Cancelled -> Unit
-            }
-        }
-    }
+    fun startWithWatch() = watch.start()
 
-    /** Cancel under "Waiting for watch…": stops the request and goes back to the availability check. */
-    fun cancelWatchStart() {
-        val waiting = _uiState.value.watchCard == WatchCardState.Waiting
-        watchJob?.cancel()
-        watchJob = null
-        if (waiting) {
-            _uiState.value = _uiState.value.copy(watchCard = null)
-            refreshWatch()
-        }
-    }
+    /** Cancel under "Waiting for watch…" (or after the Ack but before the session began). */
+    fun cancelWatchStart() = watch.cancel()
+
+    /** The Activity started the session for the [watchStarted] event. */
+    fun onWatchStartConsumed() = watch.consumed()
+
+    /** The Activity couldn't start the session for the [watchStarted] event; the watch is stopped. */
+    fun onWatchStartFailed() = watch.failed()
+
+    /** Setup left the screen (navigation or ON_STOP): an unfinished watch start is abandoned. */
+    fun onSetupLeft() = watch.leave()
 
     fun onWaitForPulseChanged(value: Boolean) {
         updateForm(_uiState.value.copy(waitForPulse = value))

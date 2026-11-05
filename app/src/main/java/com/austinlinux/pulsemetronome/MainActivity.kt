@@ -277,7 +277,10 @@ class MainActivity : ComponentActivity() {
                                 LaunchedEffect(Unit) {
                                     if (!permissionsGranted && !permissionsAsked) {
                                         permissionsAsked = true
-                                        requestBle(requiredPermissions.toList(), fromTap = false)
+                                        // The Watch source never uses the phone's Bluetooth, so only ask for notifications.
+                                        val toRequest = if (app.sourceChoiceStore.choice.value == PulseSourceKind.WATCH)
+                                            requiredPermissions.filter { it !in blePermissions } else requiredPermissions.toList()
+                                        if (toRequest.isNotEmpty()) requestBle(toRequest, fromTap = false)
                                     }
                                 }
                                 val setupViewModel: SetupViewModel = viewModel(
@@ -293,7 +296,7 @@ class MainActivity : ComponentActivity() {
                                 val settings by settingsViewModel.uiState.collectAsState()
 
                                 /** Builds the session config from Setup and starts the service on [sourceKind]. */
-                                fun beginSession(startMode: StartMode, sourceKind: PulseSourceKind) {
+                                fun beginSession(startMode: StartMode, sourceKind: PulseSourceKind): Boolean {
                                     val setupState = setupViewModel.uiState.value
                                     val targetBpm = setupState.targetBpm
                                     val totalDurationMin = setupState.totalDurationMin
@@ -328,11 +331,17 @@ class MainActivity : ComponentActivity() {
                                         )
                                         startForegroundService(intent)
                                         navController.navigate(Routes.LIVE_SESSION)
+                                        return true
                                     }
+                                    return false
                                 }
-                                // The watch has acked and is attached; it needs no Bluetooth permission.
+                                // The watch has acked and is attached; it needs no Bluetooth permission. A start that
+                                // can't become a session must stop the watch, or it would sense with nobody listening.
                                 LaunchedEffect(Unit) {
-                                    setupViewModel.watchStarted.collect { beginSession(StartMode.WHEN_PULSE_DETECTED, PulseSourceKind.WATCH) }
+                                    setupViewModel.watchStarted.collect {
+                                        if (beginSession(StartMode.WHEN_PULSE_DETECTED, PulseSourceKind.WATCH)) setupViewModel.onWatchStartConsumed()
+                                        else setupViewModel.onWatchStartFailed()
+                                    }
                                 }
 
                                 SetupScreen(

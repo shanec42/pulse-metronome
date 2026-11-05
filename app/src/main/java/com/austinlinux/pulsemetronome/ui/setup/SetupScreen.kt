@@ -122,9 +122,17 @@ fun SetupScreen(
     // The watch can be paired or installed while the app is in the background, so look again on return.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) viewModel.refreshWatch() }
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) viewModel.refreshWatch()
+            // A start still pending when the app is backgrounded would otherwise begin a session unseen.
+            if (e == Lifecycle.Event.ON_STOP) viewModel.onSetupLeft()
+        }
         lifecycleOwner.lifecycle.addObserver(obs)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(obs)
+            // Leaving Setup in-app (Info, History, Settings...) disposes this screen.
+            viewModel.onSetupLeft()
+        }
     }
     LaunchedEffect(Unit) { viewModel.refreshWatch() }
 
