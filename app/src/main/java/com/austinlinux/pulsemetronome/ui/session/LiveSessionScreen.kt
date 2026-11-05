@@ -183,8 +183,10 @@ fun LiveSessionScreen(viewModel: LiveSessionViewModel, onSessionEnded: () -> Uni
             // distinguishes BLE connecting from the 3-reading verification so the screen
             // never looks hung.
             val watch = viewModel.sourceKind == PulseSourceKind.WATCH
-            val label = if (watch && current.verificationStreakCount == 0) "Waiting for steady pulse"
-            else if (!connected && !watch) "Connecting…"
+            // A watch is "connected" once it has sent anything and drops back after 15 s of silence, so a watch
+            // that acked but then went quiet shows the oximeter's "Connecting…" instead of waiting forever.
+            val label = if (!connected) "Connecting…"
+            else if (watch && current.verificationStreakCount == 0) "Waiting for steady pulse"
             else if (current.verificationStreakCount > 0) "Verifying pulse (${current.verificationStreakCount}/3)"
             else "Waiting for pulse…"
             Column(

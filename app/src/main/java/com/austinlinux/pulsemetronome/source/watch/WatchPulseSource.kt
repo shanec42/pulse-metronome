@@ -44,7 +44,7 @@ class WatchPulseSource(
     private var sessionId: String? = null
     private var node: WatchNode? = null
     private var jobs = emptyList<Job>()
-    // Bumped on every message from the watch; the watchdog restarts its 15 s wait on each bump.
+    // Bumped on every message from the watch; the watchdog restarts its 15 s wait on attach and on each bump.
     private val activity = MutableStateFlow(0)
 
     /** Binds to a session the watch has acknowledged and starts listening, heartbeating and watching for silence. */
@@ -68,10 +68,12 @@ class WatchPulseSource(
                     transport.send(started.node.id, WatchMessage.Heartbeat(sid))
                 }
             },
+            // The first wait starts at attach: a watch that acked but never sends a Sample or Status counts as lost
+            // after 15 s, like one that falls silent later. It fires once per silence, as only a message restarts it.
             scope.launch {
                 activity.collectLatest {
                     delay(SILENCE_MS)
-                    if (_connected.value) markDisconnected()
+                    markDisconnected()
                 }
             }
         )

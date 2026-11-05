@@ -95,6 +95,23 @@ class WatchPulseSourceTest {
         assertTrue(r.source.connectionState.value)
     }
 
+    @Test fun noMessageWithin15sOfAttach_emitsDisconnected() = runTest {
+        val r = rig()
+        advanceTimeBy(14_999)
+        assertFalse(r.readings.contains(PulseReading.Disconnected))
+        advanceTimeBy(2)
+        assertEquals(listOf(PulseReading.Disconnected), r.readings)
+        assertFalse(r.source.connectionState.value)
+        // Only once: a watch that stays silent does not repeat the loss every 15 s.
+        advanceTimeBy(60_000)
+        assertEquals(1, r.readings.count { it == PulseReading.Disconnected })
+        // A late first message still connects normally.
+        r.t.deliver("n1", WatchMessage.Status("sid", WatchStatus.FINDING_PULSE))
+        runCurrent()
+        assertEquals(PulseReading.Connected, r.readings.last())
+        assertTrue(r.source.connectionState.value)
+    }
+
     @Test fun sampleFromOtherSession_ignored() = runTest {
         val r = rig()
         r.t.deliver("n1", WatchMessage.Sample("other", 64))
