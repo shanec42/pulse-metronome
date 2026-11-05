@@ -93,7 +93,7 @@ val verifyReleaseNoNetwork by tasks.registering {
         if (forbidden.isNotEmpty()) throw GradleException("Release merged manifest contains: ${forbidden.joinToString()}")
     }
 }
-tasks.matching { it.name == "assembleRelease" }.configureEach { dependsOn(verifyReleaseNoNetwork) }
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach { dependsOn(verifyReleaseNoNetwork) }
 
 android {
     namespace = "com.austinlinux.pulsemetronome"
