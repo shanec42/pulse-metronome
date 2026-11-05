@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -47,6 +48,9 @@ class SensingService : Service() {
     private var activeSessionId: String? = null
     private var tickJob: Job? = null
     private var foregroundStarted = false
+    private var outboxJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var lastStartId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,41 +63,63 @@ class SensingService : Service() {
             NotificationChannel(CHANNEL_ID, "Heart rate sensing", NotificationManager.IMPORTANCE_LOW),
         )
         scope.launch {
-            machine.outbox.collect { message ->
-                if (!link.send(message)) machine.onSendFailed()
-            }
-        }
-        scope.launch {
             machine.ui.collect { state -> if (foregroundStarted) updateNotification(state) }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         val message = intent?.let(::messageFrom)
-        val ack = (message as? WatchMessage.Start)?.let { machine.onStart(it.sessionId, hasHeartPermission()) }
-        if (!ensureForeground()) {
-            // Foreground start refused (typically permission): answer the phone, then give up.
-            if (ack != null) sendAck(ack) { stopSelf() } else stopSelf()
+        if (message !is WatchMessage.Start) {
+            handleOther(message)
             return START_NOT_STICKY
         }
+        if (!hasHeartPermission()) {
+            // The permission really is missing: tell the phone. Satisfy the foreground contract if we can.
+            ensureForeground()
+            sendAckDetached(machine.onStart(message.sessionId, hasPermission = false))
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (!ensureForeground()) {
+            // Permission is granted but the start was refused (e.g. while-in-use BODY_SENSORS from the background).
+            // No Ack: the phone's 3 s fallback then opens the watch app and resends Start.
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        handleStart(message, machine.onStart(message.sessionId, hasPermission = true))
+        return START_NOT_STICKY
+    }
+
+    /** Stop, Heartbeat or junk: never starts foreground; with no active session the service just ends. */
+    private fun handleOther(message: WatchMessage?) {
         when (message) {
-            is WatchMessage.Start -> handleStart(message, requireNotNull(ack))
             is WatchMessage.Stop -> {
                 machine.onStop(message.sessionId)
                 if (machine.ui.value == WatchUiState.Ready) endService()
             }
             is WatchMessage.Heartbeat -> machine.onHeartbeat(message.sessionId)
-            else -> if (activeSessionId == null) endService()
+            else -> Unit
         }
-        return START_NOT_STICKY
+        if (activeSessionId == null) endService()
     }
 
     private fun handleStart(start: WatchMessage.Start, ack: WatchMessage.Ack) {
-        sendAck(ack) { if (!ack.ok) endService() }
-        if (!ack.ok) return
-        // A resend of the running session only needs the repeated Ack.
-        if (activeSessionId == start.sessionId) return
+        val newSession = activeSessionId != start.sessionId
         activeSessionId = start.sessionId
+        acquireWakeLock()
+        if (newSession) {
+            // Ack goes out before any queued Status/Sample, or the phone would answer them with Stop.
+            outboxJob?.cancel()
+            outboxJob = scope.launch {
+                link.send(ack)
+                machine.outbox.collect { message -> if (!link.send(message)) machine.onSendFailed() }
+            }
+        } else {
+            scope.launch { link.send(ack) } // the phone's resend of Start: repeat the Ack only
+            return
+        }
+        // The exercise keeps running across a session change; start() ignores a second call.
         sensor.start(object : HeartRateSensor.Listener {
             override fun onBpm(bpm: Int) = machine.onSample(bpm)
             override fun onContact(lost: Boolean) = machine.onContact(lost)
@@ -106,6 +132,7 @@ class SensingService : Service() {
             tickJob = scope.launch {
                 while (true) {
                     delay(TICK_MS)
+                    wakeLock?.acquire(WAKE_LOCK_MS) // renewed while ticking so a dead service cannot hold the CPU
                     if (machine.tick()) {
                         Log.i(TAG, "No phone contact for the safety window; stopping")
                         endService()
@@ -116,11 +143,25 @@ class SensingService : Service() {
         }
     }
 
-    private fun sendAck(ack: WatchMessage.Ack, then: () -> Unit) {
-        scope.launch {
-            link.send(ack)
-            then()
+    /** One-shot Ack that survives the service being stopped right after; short-lived, so no lifecycle needed. */
+    private fun sendAckDetached(ack: WatchMessage.Ack) {
+        val appLink = PhoneLink(applicationContext)
+        detachedScope.launch { appLink.send(ack) }
+    }
+
+    private fun acquireWakeLock() {
+        if (wakeLock == null) {
+            // CPU only (never a screen lock): keeps the tick loop and keep-alive running with the screen off.
+            wakeLock = getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PulseMetronome:sensing")
+                .apply { setReferenceCounted(false) }
         }
+        wakeLock?.acquire(WAKE_LOCK_MS)
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.takeIf { it.isHeld }?.release()
+        wakeLock = null
     }
 
     /** Stops sensing, tells an open WatchActivity to finish, and stops the service. */
@@ -128,9 +169,13 @@ class SensingService : Service() {
         activeSessionId = null
         tickJob?.cancel()
         tickJob = null
+        outboxJob?.cancel()
+        outboxJob = null
         sensor.stop()
+        releaseWakeLock()
         sendBroadcast(Intent(ACTION_FINISH_ACTIVITY).setPackage(packageName))
-        stopSelf()
+        // By id, so a Start that arrived meanwhile is not killed.
+        stopSelf(lastStartId)
     }
 
     private fun ensureForeground(): Boolean {
@@ -183,6 +228,7 @@ class SensingService : Service() {
         isRunning = false
         tickJob?.cancel()
         sensor.stop()
+        releaseWakeLock()
         scope.cancel()
         super.onDestroy()
     }
@@ -196,7 +242,11 @@ class SensingService : Service() {
         private const val TAG = "SensingService"
         private const val CHANNEL_ID = "sensing"
         private const val NOTIFICATION_ID = 1
-        private const val TICK_MS = 5_000L
+        // Keep-alive worst case is keepAliveMs (5 s) + one tick, so 2 s ticks keep it under the 10 s requirement.
+        private const val TICK_MS = 2_000L
+        // Longer than the 2 minute safety stop; each tick renews it.
+        private const val WAKE_LOCK_MS = 150_000L
+        private val detachedScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         private const val READ_HEART_RATE = "android.permission.health.READ_HEART_RATE"
         private const val EXTRA_TYPE = "type"
         private const val EXTRA_SESSION_ID = "sessionId"
@@ -226,7 +276,12 @@ class SensingService : Service() {
         fun forward(context: Context, message: WatchMessage) {
             val intent = intentFor(context, message) ?: return
             try {
-                context.startForegroundService(intent)
+                if (message is WatchMessage.Start) {
+                    context.startForegroundService(intent)
+                } else if (isRunning) {
+                    // Already foreground, so a plain start is allowed and needs no startForeground() answer.
+                    context.startService(intent)
+                }
             } catch (e: RuntimeException) {
                 if (Build.VERSION.SDK_INT >= 31 && e is ForegroundServiceStartNotAllowedException) {
                     Log.w(TAG, "Background start of SensingService was blocked", e)

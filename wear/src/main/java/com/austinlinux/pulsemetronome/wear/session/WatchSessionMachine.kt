@@ -27,8 +27,9 @@ sealed interface WatchUiState {
 class WatchSessionMachine(
     private val nowMs: () -> Long,
     private val safetyStopMs: Long = 120_000,
-    // The phone calls 15 s of silence Disconnected, so something must go out well inside that window.
-    private val keepAliveMs: Long = 8_000,
+    // The phone calls 15 s of silence Disconnected and the brief wants a message at least every 10 s; with the
+    // service ticking every 2 s the worst-case gap is keepAliveMs + one tick = 7 s.
+    private val keepAliveMs: Long = 5_000,
 ) {
     private val _ui = MutableStateFlow<WatchUiState>(WatchUiState.Ready)
     val ui: StateFlow<WatchUiState> = _ui

@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
+import androidx.health.services.client.data.BatchingMode
 import androidx.health.services.client.data.DataType
 import androidx.health.services.client.data.DataTypeAvailability
 import androidx.health.services.client.data.ExerciseConfig
@@ -39,7 +40,9 @@ class HealthServicesHeartRateSensor(context: Context) : HeartRateSensor {
     private var running = false
 
     override fun start(listener: HeartRateSensor.Listener) {
-        stop()
+        // A running exercise is kept: ending and restarting it races the pending end against the new start.
+        if (running) return
+        running = true
         val cb = object : ExerciseUpdateCallback {
             override fun onRegistered() = Unit
             override fun onRegistrationFailed(throwable: Throwable) {
@@ -67,12 +70,35 @@ class HealthServicesHeartRateSensor(context: Context) : HeartRateSensor {
         callback = cb
         val executor = appContext.mainExecutor
         client.setUpdateCallback(executor, cb)
+        try {
+            val caps = client.getCapabilitiesAsync()
+            caps.addListener({
+                if (!running) return@addListener
+                // With the screen off Health Services may batch HR; ask for 5 s delivery when supported.
+                val batching = try {
+                    val supported = caps.get().supportedBatchingModeOverrides
+                    if (BatchingMode.HEART_RATE_5_SECONDS in supported) setOf(BatchingMode.HEART_RATE_5_SECONDS) else emptySet()
+                } catch (e: Exception) {
+                    Log.w(TAG, "capabilities unavailable; starting without a batching override", e)
+                    emptySet()
+                }
+                startExercise(listener, batching)
+            }, executor)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "getCapabilities threw", e)
+            running = false
+            listener.onFailed()
+        }
+    }
+
+    private fun startExercise(listener: HeartRateSensor.Listener, batching: Set<BatchingMode>) {
         val config = ExerciseConfig.builder(ExerciseType.WORKOUT)
             .setDataTypes(setOf(DataType.HEART_RATE_BPM))
             .setIsAutoPauseAndResumeEnabled(false)
             .setIsGpsEnabled(false)
+            .setBatchingModeOverrides(batching)
             .build()
-        running = true
+        val executor = appContext.mainExecutor
         try {
             val future = client.startExerciseAsync(config)
             future.addListener({
@@ -90,9 +116,9 @@ class HealthServicesHeartRateSensor(context: Context) : HeartRateSensor {
     }
 
     override fun stop() {
+        running = false
         val cb = callback ?: return
         callback = null
-        running = false
         try {
             client.endExerciseAsync()
             client.clearUpdateCallbackAsync(cb)

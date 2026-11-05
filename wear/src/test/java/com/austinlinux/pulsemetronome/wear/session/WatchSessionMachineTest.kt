@@ -119,9 +119,37 @@ class WatchSessionMachineTest {
         machine.onStart("s1", true)
         machine.onSample(70)
         takeOutbox(2)
-        now += 10_000
+        now += 5_000
         machine.onHeartbeat("s1")
         assertFalse(machine.tick())
         assertEquals(listOf<WatchMessage>(WatchMessage.Status("s1", WatchStatus.SENSING)), takeOutbox(1))
+    }
+
+    @Test fun keepAlive_gapNeverReaches10sAtWorstCaseTickPhase() {
+        val tickMs = 2_000L // the service's tick period
+        machine.onStart("s1", true)
+        machine.onSample(70)
+        takeOutbox(2)
+        var lastSent = now
+        var maxGap = 0L
+        // Offset the first tick by 1 ms so keep-alive deadlines always fall just after a tick.
+        now += 1
+        repeat(30) {
+            machine.onHeartbeat("s1")
+            machine.tick()
+            if (takeNonBlocking() > 0) {
+                maxGap = maxOf(maxGap, now - lastSent)
+                lastSent = now
+            }
+            now += tickMs
+        }
+        assertTrue("max silent gap was $maxGap ms", maxGap in 1..9_999)
+        assertTrue("still silent at the end: ${now - lastSent} ms", now - lastSent < 10_000)
+    }
+
+    private fun takeNonBlocking(): Int = runBlocking {
+        var n = 0
+        while (withTimeoutOrNull(20) { machine.outbox.take(1).toList() }?.isNotEmpty() == true) n++
+        n
     }
 }
