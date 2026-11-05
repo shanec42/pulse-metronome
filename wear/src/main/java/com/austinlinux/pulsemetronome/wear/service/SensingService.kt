@@ -74,7 +74,7 @@ class SensingService : Service() {
             handleOther(message)
             return START_NOT_STICKY
         }
-        if (!hasHeartPermission()) {
+        if (!hasHeartPermission(this)) {
             // The permission really is missing: tell the phone. Satisfy the foreground contract if we can.
             ensureForeground()
             sendAckDetached(machine.onStart(message.sessionId, hasPermission = false))
@@ -82,8 +82,10 @@ class SensingService : Service() {
             return START_NOT_STICKY
         }
         if (!ensureForeground()) {
-            // Permission is granted but the start was refused (e.g. while-in-use BODY_SENSORS from the background).
-            // No Ack: the phone's 3 s fallback then opens the watch app and resends Start.
+            // Last resort only: PhoneMessageListener already screens out the background and no-permission cases.
+            // Granted but refused: no Ack, so the phone's 3 s fallback opens the watch app and resends Start.
+            // A refused startForeground cannot be satisfied with another type (the manifest declares health only),
+            // so the owed startForegroundService() contract may still log a crash; the listener gate avoids this path.
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -98,7 +100,10 @@ class SensingService : Service() {
                 machine.onStop(message.sessionId)
                 if (machine.ui.value == WatchUiState.Ready) endService()
             }
-            is WatchMessage.Heartbeat -> machine.onHeartbeat(message.sessionId)
+            is WatchMessage.Heartbeat -> {
+                machine.onHeartbeat(message.sessionId)
+                if (activeSessionId != null) startSensor() // retry after a sensor failure
+            }
             else -> Unit
         }
         if (activeSessionId == null) endService()
@@ -117,17 +122,10 @@ class SensingService : Service() {
             }
         } else {
             scope.launch { link.send(ack) } // the phone's resend of Start: repeat the Ack only
+            startSensor() // retries if the sensor failed earlier; a no-op while it runs
             return
         }
-        // The exercise keeps running across a session change; start() ignores a second call.
-        sensor.start(object : HeartRateSensor.Listener {
-            override fun onBpm(bpm: Int) = machine.onSample(bpm)
-            override fun onContact(lost: Boolean) = machine.onContact(lost)
-            override fun onFailed() {
-                Log.w(TAG, "Heart-rate sensor failed")
-                machine.onContact(lost = true)
-            }
-        })
+        startSensor()
         if (tickJob == null) {
             tickJob = scope.launch {
                 while (true) {
@@ -140,6 +138,18 @@ class SensingService : Service() {
                     }
                 }
             }
+        }
+    }
+
+    /** Starts the exercise unless one is running (it is kept across session changes); a failed one is retried. */
+    private fun startSensor() = sensor.start(sensorListener)
+
+    private val sensorListener = object : HeartRateSensor.Listener {
+        override fun onBpm(bpm: Int) = machine.onSample(bpm)
+        override fun onContact(lost: Boolean) = machine.onContact(lost)
+        override fun onFailed() {
+            Log.w(TAG, "Heart-rate sensor failed")
+            machine.onContact(lost = true)
         }
     }
 
@@ -233,11 +243,6 @@ class SensingService : Service() {
         super.onDestroy()
     }
 
-    private fun hasHeartPermission(): Boolean {
-        val permission = if (Build.VERSION.SDK_INT >= 36) READ_HEART_RATE else Manifest.permission.BODY_SENSORS
-        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-    }
-
     companion object {
         private const val TAG = "SensingService"
         private const val CHANNEL_ID = "sensing"
@@ -256,6 +261,12 @@ class SensingService : Service() {
 
         /** Broadcast (package-scoped) the watch activity listens for to close itself when sensing ends. */
         const val ACTION_FINISH_ACTIVITY = "com.austinlinux.pulsemetronome.wear.FINISH_ACTIVITY"
+
+        /** Whether the heart-rate permission the sensor needs on this Android version is granted. */
+        fun hasHeartPermission(context: Context): Boolean {
+            val permission = if (Build.VERSION.SDK_INT >= 36) READ_HEART_RATE else Manifest.permission.BODY_SENSORS
+            return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        }
 
         /** True while an instance exists; lets the listener skip Stop and Heartbeat when nothing is running. */
         @Volatile var isRunning = false

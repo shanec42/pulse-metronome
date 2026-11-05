@@ -132,8 +132,9 @@ class WatchSessionMachineTest {
         takeOutbox(2)
         var lastSent = now
         var maxGap = 0L
-        // Offset the first tick by 1 ms so keep-alive deadlines always fall just after a tick.
-        now += 1
+        // Ticks at +1999, +3999, +5999: the one just before the 5 s deadline misses it, so the send happens
+        // at +5999 and the gap is the true worst case (about 6 s, never 10 s).
+        now += tickMs - 1
         repeat(30) {
             machine.onHeartbeat("s1")
             machine.tick()
@@ -143,7 +144,7 @@ class WatchSessionMachineTest {
             }
             now += tickMs
         }
-        assertTrue("max silent gap was $maxGap ms", maxGap in 1..9_999)
+        assertTrue("max silent gap was $maxGap ms", maxGap in 5_000..9_999)
         assertTrue("still silent at the end: ${now - lastSent} ms", now - lastSent < 10_000)
     }
 

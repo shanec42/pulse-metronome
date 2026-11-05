@@ -10,6 +10,7 @@ import androidx.health.services.client.data.DataType
 import androidx.health.services.client.data.DataTypeAvailability
 import androidx.health.services.client.data.ExerciseConfig
 import androidx.health.services.client.data.ExerciseLapSummary
+import androidx.health.services.client.data.ExerciseTrackedStatus
 import androidx.health.services.client.data.ExerciseType
 import androidx.health.services.client.data.ExerciseUpdate
 import kotlin.math.roundToInt
@@ -38,19 +39,35 @@ class HealthServicesHeartRateSensor(context: Context) : HeartRateSensor {
     private val client = HealthServices.getClient(appContext).exerciseClient
     private var callback: ExerciseUpdateCallback? = null
     private var running = false
+    // Bumped on every start and stop so a late capabilities callback from an older start is ignored.
+    private var generation = 0
+
+    /** Marks the sensor not running (so the next start() retries) and reports the failure. */
+    private fun fail(listener: HeartRateSensor.Listener) {
+        running = false
+        callback = null
+        listener.onFailed()
+    }
 
     override fun start(listener: HeartRateSensor.Listener) {
         // A running exercise is kept: ending and restarting it races the pending end against the new start.
         if (running) return
         running = true
+        val gen = ++generation
         val cb = object : ExerciseUpdateCallback {
             override fun onRegistered() = Unit
             override fun onRegistrationFailed(throwable: Throwable) {
                 Log.w(TAG, "Exercise callback registration failed", throwable)
-                listener.onFailed()
+                if (gen == generation) fail(listener)
             }
 
             override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
+                if (update.exerciseStateInfo.state.isEnded && gen == generation) {
+                    // Health Services ended the exercise (e.g. permission lost); allow a retry on the next session.
+                    Log.w(TAG, "Exercise ended by the system: ${update.exerciseStateInfo.state}")
+                    fail(listener)
+                    return
+                }
                 val point = update.latestMetrics.getData(DataType.HEART_RATE_BPM).lastOrNull() ?: return
                 listener.onBpm(point.value.roundToInt())
             }
@@ -73,7 +90,7 @@ class HealthServicesHeartRateSensor(context: Context) : HeartRateSensor {
         try {
             val caps = client.getCapabilitiesAsync()
             caps.addListener({
-                if (!running) return@addListener
+                if (!running || gen != generation) return@addListener
                 // With the screen off Health Services may batch HR; ask for 5 s delivery when supported.
                 val batching = try {
                     val supported = caps.get().supportedBatchingModeOverrides
@@ -82,16 +99,15 @@ class HealthServicesHeartRateSensor(context: Context) : HeartRateSensor {
                     Log.w(TAG, "capabilities unavailable; starting without a batching override", e)
                     emptySet()
                 }
-                startExercise(listener, batching)
+                startExercise(listener, batching, gen)
             }, executor)
         } catch (e: RuntimeException) {
             Log.w(TAG, "getCapabilities threw", e)
-            running = false
-            listener.onFailed()
+            fail(listener)
         }
     }
 
-    private fun startExercise(listener: HeartRateSensor.Listener, batching: Set<BatchingMode>) {
+    private fun startExercise(listener: HeartRateSensor.Listener, batching: Set<BatchingMode>, gen: Int) {
         val config = ExerciseConfig.builder(ExerciseType.WORKOUT)
             .setDataTypes(setOf(DataType.HEART_RATE_BPM))
             .setIsAutoPauseAndResumeEnabled(false)
@@ -106,28 +122,54 @@ class HealthServicesHeartRateSensor(context: Context) : HeartRateSensor {
                     future.get()
                 } catch (e: Exception) {
                     Log.w(TAG, "startExercise failed", e)
-                    if (running) listener.onFailed()
+                    if (running && gen == generation) fail(listener)
                 }
             }, executor)
         } catch (e: RuntimeException) {
             Log.w(TAG, "startExercise threw", e)
-            listener.onFailed()
+            fail(listener)
         }
     }
 
     override fun stop() {
         running = false
-        val cb = callback ?: return
+        generation++
+        val cb = callback
         callback = null
         try {
+            // Always end: an exercise outlives its client process, so there may be one with no callback registered here.
             client.endExerciseAsync()
-            client.clearUpdateCallbackAsync(cb)
+            if (cb != null) client.clearUpdateCallbackAsync(cb)
         } catch (e: RuntimeException) {
             Log.w(TAG, "stopping the exercise failed", e)
         }
     }
 
-    private companion object {
-        const val TAG = "HeartRateSensor"
+    companion object {
+        private const val TAG = "HeartRateSensor"
+
+        /**
+         * Ends an exercise this app left running (the process died without onDestroy). Call only when no
+         * session is active; does nothing if no owned exercise is in progress.
+         */
+        fun endOrphanExercise(context: Context) {
+            val appContext = context.applicationContext
+            try {
+                val client = HealthServices.getClient(appContext).exerciseClient
+                val info = client.getCurrentExerciseInfoAsync()
+                info.addListener({
+                    try {
+                        if (info.get().exerciseTrackedStatus == ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) {
+                            Log.w(TAG, "Ending an orphaned exercise")
+                            client.endExerciseAsync()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "orphan check failed", e)
+                    }
+                }, appContext.mainExecutor)
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "orphan check threw", e)
+            }
+        }
     }
 }
