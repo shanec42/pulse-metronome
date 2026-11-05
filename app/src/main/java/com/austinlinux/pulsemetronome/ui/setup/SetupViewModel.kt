@@ -8,6 +8,14 @@ import com.austinlinux.pulsemetronome.engine.DescentPattern
 import com.austinlinux.pulsemetronome.engine.NoPulseDescent
 import com.austinlinux.pulsemetronome.engine.StartMode
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.SourceChoiceStore
+import com.austinlinux.pulsemetronome.source.watch.StartResult
+import com.austinlinux.pulsemetronome.source.watch.WatchAvailability
+import com.austinlinux.pulsemetronome.source.watch.WatchLink
+import com.austinlinux.pulsemetronome.source.watch.WatchPulseSource
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -102,9 +110,10 @@ fun startEnabled(
  */
 fun showMayNotReachNote(
     waitForPulse: Boolean, meterConnected: Boolean, fallbackBpm: Int, targetBpm: Int?,
-    totalDurationMin: Int?, rampDurationMin: Int?, maxOffset: Int, pattern: DescentPattern
+    totalDurationMin: Int?, rampDurationMin: Int?, maxOffset: Int, pattern: DescentPattern,
+    source: PulseSourceKind = PulseSourceKind.OXIMETER
 ): Boolean {
-    if (resolveStartMode(waitForPulse, meterConnected) != StartMode.NO_PULSE) return false
+    if (resolveStartMode(waitForPulse, meterConnected, source = source) != StartMode.NO_PULSE) return false
     if (targetBpm == null || totalDurationMin == null || rampDurationMin == null) return false
     return NoPulseDescent.mayNotReachTarget(
         fallbackBpm.toDouble(), targetBpm.toDouble(), totalDurationMin.toDouble(),
@@ -147,7 +156,9 @@ data class SetupUiState(
     // -> resolveStartMode at Start-tap: NOW with a meter connected, NO_PULSE without one. Checked -> StartMode.WHEN_PULSE_DETECTED, and Start
     // becomes enabled regardless of BLE connection state (see SetupScreen).
     val waitForPulse: Boolean = false,
-    val monitor: Boolean = false
+    val monitor: Boolean = false,
+    // Null until the first availability check of a Watch selection has answered.
+    val watchCard: WatchCardState? = null
 ) {
     val validation: SetupValidationResult get() = validateSetup(targetBpm, totalDurationMin, rampDurationMin)
 }
@@ -160,7 +171,10 @@ data class SetupUiState(
  */
 class SetupViewModel(
     private val bleModule: BleModule,
-    private val valuesStore: SetupValuesStore
+    private val valuesStore: SetupValuesStore,
+    private val sourceStore: SourceChoiceStore,
+    private val watchLink: WatchLink,
+    private val watchPulseSource: WatchPulseSource
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SetupUiState())
     val uiState: StateFlow<SetupUiState> = _uiState.asStateFlow()
@@ -211,6 +225,69 @@ class SetupViewModel(
             rampDurationMin = r.ramp, totalDurationMin = r.total,
             rampEditedByUser = current.rampEditedByUser || r.ramp != r.total
         ))
+    }
+
+    /** The chosen pulse source. */
+    val source: StateFlow<PulseSourceKind> = sourceStore.choice
+
+    // One-shot: the watch has acknowledged and is attached, so the Activity should start the session.
+    // A channel (not a SharedFlow) so the event survives Setup being off-screen when the Ack lands.
+    private val watchStartedEvents = Channel<Unit>(Channel.BUFFERED)
+    val watchStarted: Flow<Unit> = watchStartedEvents.receiveAsFlow()
+    private var watchJob: Job? = null
+
+    /** Switches the source; picking Watch checks for the watch straight away. */
+    fun onSourceSelected(kind: PulseSourceKind) {
+        if (kind == sourceStore.choice.value) return
+        sourceStore.set(kind)
+        watchJob?.cancel()
+        watchJob = null
+        _uiState.value = _uiState.value.copy(watchCard = null)
+        if (kind == PulseSourceKind.WATCH) refreshWatch()
+    }
+
+    /** Re-runs the watch availability check (selection, screen resume, "Check again"); ignored while waiting. */
+    fun refreshWatch() {
+        if (sourceStore.choice.value != PulseSourceKind.WATCH || watchJob?.isActive == true) return
+        watchJob = viewModelScope.launch {
+            val a = watchLink.availability()
+            _uiState.value = _uiState.value.copy(
+                watchCard = when (a) {
+                    is WatchAvailability.Ready -> WatchCardState.Ready(a.node.displayName)
+                    WatchAvailability.NotFound -> WatchCardState.NotFound
+                }
+            )
+        }
+    }
+
+    /** Start with the Watch source: asks the watch to begin and, once it acks, tells the Activity to start the session. */
+    fun startWithWatch() {
+        if (watchJob?.isActive == true && _uiState.value.watchCard == WatchCardState.Waiting) return
+        watchJob?.cancel()
+        _uiState.value = _uiState.value.copy(watchCard = WatchCardState.Waiting)
+        watchJob = viewModelScope.launch {
+            when (val r = watchLink.requestStart()) {
+                is StartResult.Started -> {
+                    // Must precede the service start so no early sample is missed.
+                    watchPulseSource.attach(r)
+                    _uiState.value = _uiState.value.copy(watchCard = WatchCardState.Ready(r.node.displayName))
+                    watchStartedEvents.send(Unit)
+                }
+                is StartResult.CantStart -> _uiState.value = _uiState.value.copy(watchCard = WatchCardState.CantStart(r.reason))
+                StartResult.Cancelled -> Unit
+            }
+        }
+    }
+
+    /** Cancel under "Waiting for watch…": stops the request and goes back to the availability check. */
+    fun cancelWatchStart() {
+        val waiting = _uiState.value.watchCard == WatchCardState.Waiting
+        watchJob?.cancel()
+        watchJob = null
+        if (waiting) {
+            _uiState.value = _uiState.value.copy(watchCard = null)
+            refreshWatch()
+        }
     }
 
     fun onWaitForPulseChanged(value: Boolean) {

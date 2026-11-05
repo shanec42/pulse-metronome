@@ -282,7 +282,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 val setupViewModel: SetupViewModel = viewModel(
                                     factory = viewModelFactory {
-                                        initializer { SetupViewModel(app.bleModule, app.setupValuesStore) }
+                                        initializer { SetupViewModel(app.bleModule, app.setupValuesStore, app.sourceChoiceStore, app.watchLink, app.watchPulseSource) }
                                     }
                                 )
                                 val settingsViewModel: SettingsViewModel = viewModel(
@@ -291,6 +291,49 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                                 val settings by settingsViewModel.uiState.collectAsState()
+
+                                /** Builds the session config from Setup and starts the service on [sourceKind]. */
+                                fun beginSession(startMode: StartMode, sourceKind: PulseSourceKind) {
+                                    val setupState = setupViewModel.uiState.value
+                                    val targetBpm = setupState.targetBpm
+                                    val totalDurationMin = setupState.totalDurationMin
+                                    val rampDurationMin = setupState.rampDurationMin
+                                    val maxOffset = settings.maxOffset
+                                    // Meter modes ignore Starting BPM but a blank/invalid in-memory value must not block Start; NO_PULSE is already guaranteed valid by startEnabled.
+                                    val staticFallbackStartingBpm = settings.staticFallbackStartingBpm?.takeIf { it in 30..200 } ?: 70
+                                    // Monitor hides Target and Ramp, so a blank hidden field must not block Start; the engine ignores them in Monitor.
+                                    val monitor = setupState.monitor
+                                    val configTarget = if (monitor) (targetBpm ?: 60) else targetBpm
+                                    val configRamp = if (monitor) (rampDurationMin ?: totalDurationMin) else rampDurationMin
+                                    if (configTarget != null && totalDurationMin != null &&
+                                        configRamp != null && maxOffset != null
+                                    ) {
+                                        val config = SessionConfig(
+                                            targetBpm = configTarget.toDouble(),
+                                            totalDurationMin = totalDurationMin.toDouble(),
+                                            rampDurationMin = configRamp.toDouble(),
+                                            maxOffset = maxOffset.toDouble(),
+                                            staticFallbackStartingBpm = staticFallbackStartingBpm.toDouble(),
+                                            descentPattern = settings.descentPattern,
+                                            monitor = monitor,
+                                            monitorSignalLoss = settings.monitorSignalLoss,
+                                            pacedSignalLoss = settings.pacedSignalLoss
+                                        )
+                                        // Must happen before LIVE_SESSION composes - the service's own clear in onStartCommand runs later on the main looper.
+                                        SessionStateBus.clearEndedSessionId()
+                                        val intent = SessionForegroundService.newIntent(
+                                            app, config, settings.alarmType, startMode,
+                                            saveToHistory = settings.historyEnabled,
+                                            sourceKind = sourceKind
+                                        )
+                                        startForegroundService(intent)
+                                        navController.navigate(Routes.LIVE_SESSION)
+                                    }
+                                }
+                                // The watch has acked and is attached; it needs no Bluetooth permission.
+                                LaunchedEffect(Unit) {
+                                    setupViewModel.watchStarted.collect { beginSession(StartMode.WHEN_PULSE_DETECTED, PulseSourceKind.WATCH) }
+                                }
 
                                 SetupScreen(
                                     viewModel = setupViewModel,
@@ -312,41 +355,7 @@ class MainActivity : ComponentActivity() {
                                             if (bleDeniedPermanently) openAppSettings() else requestBle(blePermissions.toList(), fromTap = true)
                                             return@SetupScreen
                                         }
-                                        val setupState = setupViewModel.uiState.value
-                                        val targetBpm = setupState.targetBpm
-                                        val totalDurationMin = setupState.totalDurationMin
-                                        val rampDurationMin = setupState.rampDurationMin
-                                        val maxOffset = settings.maxOffset
-                                        // Meter modes ignore Starting BPM but a blank/invalid in-memory value must not block Start; NO_PULSE is already guaranteed valid by startEnabled.
-                                        val staticFallbackStartingBpm = settings.staticFallbackStartingBpm?.takeIf { it in 30..200 } ?: 70
-                                        // Monitor hides Target and Ramp, so a blank hidden field must not block Start; the engine ignores them in Monitor.
-                                        val monitor = setupState.monitor
-                                        val configTarget = if (monitor) (targetBpm ?: 60) else targetBpm
-                                        val configRamp = if (monitor) (rampDurationMin ?: totalDurationMin) else rampDurationMin
-                                        if (configTarget != null && totalDurationMin != null &&
-                                            configRamp != null && maxOffset != null
-                                        ) {
-                                            val config = SessionConfig(
-                                                targetBpm = configTarget.toDouble(),
-                                                totalDurationMin = totalDurationMin.toDouble(),
-                                                rampDurationMin = configRamp.toDouble(),
-                                                maxOffset = maxOffset.toDouble(),
-                                                staticFallbackStartingBpm = staticFallbackStartingBpm.toDouble(),
-                                                descentPattern = settings.descentPattern,
-                                                monitor = monitor,
-                                                monitorSignalLoss = settings.monitorSignalLoss,
-                                                pacedSignalLoss = settings.pacedSignalLoss
-                                            )
-                                            // Must happen before LIVE_SESSION composes - the service's own clear in onStartCommand runs later on the main looper.
-                                            SessionStateBus.clearEndedSessionId()
-                                            val intent = SessionForegroundService.newIntent(
-                                                app, config, settings.alarmType, startMode,
-                                                saveToHistory = settings.historyEnabled,
-                                                sourceKind = PulseSourceKind.OXIMETER
-                                            )
-                                            startForegroundService(intent)
-                                            navController.navigate(Routes.LIVE_SESSION)
-                                        }
+                                        beginSession(startMode, PulseSourceKind.OXIMETER)
                                     }
                                 )
                             }
@@ -354,7 +363,9 @@ class MainActivity : ComponentActivity() {
                             composable(Routes.LIVE_SESSION) {
                                 val liveSessionViewModel: LiveSessionViewModel = viewModel(
                                     factory = viewModelFactory {
-                                        initializer { LiveSessionViewModel(app.bleModule) }
+                                        initializer { app.sourceChoiceStore.choice.value.let { kind ->
+                                            LiveSessionViewModel(app.bleModule, kind, app.pulseSourceFor(kind))
+                                        } }
                                     }
                                 )
                                 LiveSessionScreen(

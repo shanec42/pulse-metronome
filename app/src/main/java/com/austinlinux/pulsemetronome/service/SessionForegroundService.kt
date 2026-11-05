@@ -187,9 +187,13 @@ class SessionForegroundService : Service() {
         // real state is available.
         ensureNotificationChannel()
         val startMode = StartMode.valueOf(intent.getStringExtra(EXTRA_START_MODE) ?: StartMode.NOW.name)
+        val sourceKind = intent.getStringExtra(EXTRA_SOURCE_KIND)
+            ?.let { name -> PulseSourceKind.values().firstOrNull { it.name == name } }
+            ?: PulseSourceKind.OXIMETER
         // NO_PULSE never touches Bluetooth and may run without its permission; claiming the
-        // connectedDevice type without BLUETOOTH_CONNECT throws on Android 14.
-        if (startMode == StartMode.NO_PULSE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        // connectedDevice type without BLUETOOTH_CONNECT throws on Android 14. The Watch source
+        // doesn't use the phone's Bluetooth either.
+        if ((startMode == StartMode.NO_PULSE || sourceKind == PulseSourceKind.WATCH) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, buildInitialNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
             startForeground(NOTIFICATION_ID, buildInitialNotification())
@@ -217,9 +221,6 @@ class SessionForegroundService : Service() {
         // Reuses the app-scoped source (the BleModule for OXIMETER, constructed once in PulseMetronomeApp) - NOT a new
         // instance - so a connection Setup already established isn't torn down and rebuilt
         // when a session starts. See Task 18's Ownership clarification.
-        val sourceKind = intent.getStringExtra(EXTRA_SOURCE_KIND)
-            ?.let { name -> PulseSourceKind.values().firstOrNull { it.name == name } }
-            ?: PulseSourceKind.OXIMETER
         pulseSource = (application as com.austinlinux.pulsemetronome.PulseMetronomeApp).pulseSourceFor(sourceKind)
         // Decoded once here, not inside the lambda AudioEngine calls per-beat (a real bug
         // found in final review, I2) - re-running MediaExtractor on every click adds

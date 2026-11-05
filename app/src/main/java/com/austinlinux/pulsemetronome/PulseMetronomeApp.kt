@@ -53,6 +53,10 @@ class PulseMetronomeApp : Application() {
         PulseSourceKind.WATCH -> watchPulseSource
     }
 
+    val sourceChoiceStore: com.austinlinux.pulsemetronome.source.SourceChoiceStore by lazy {
+        com.austinlinux.pulsemetronome.source.sharedPreferencesSourceChoiceStore(this)
+    }
+
     val database: AppDatabase by lazy { AppDatabase.instance(this) }
 
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }

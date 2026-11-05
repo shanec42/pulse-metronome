@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +55,16 @@ import com.austinlinux.pulsemetronome.ble.ScanOutcome
 import com.austinlinux.pulsemetronome.ble.protocol.isBatteryLow
 import com.austinlinux.pulsemetronome.engine.DescentPattern
 import com.austinlinux.pulsemetronome.engine.StartMode
+import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.wearlink.CantStartReason
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.austinlinux.pulsemetronome.ui.theme.EcgMode
 import com.austinlinux.pulsemetronome.ui.theme.MetronomeEcg
 import com.austinlinux.pulsemetronome.ui.theme.MonoLabel
@@ -105,17 +116,29 @@ fun SetupScreen(
     val battery by bleModule.batteryPercent.collectAsState()
     val alarm by SessionStateBus.alarm.collectAsState()
     val context = LocalContext.current
+    val source by viewModel.source.collectAsState()
+    val watch = source == PulseSourceKind.WATCH
+
+    // The watch can be paired or installed while the app is in the background, so look again on return.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) viewModel.refreshWatch() }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
+    LaunchedEffect(Unit) { viewModel.refreshWatch() }
 
     val validation = uiState.validation
-    val display = setupDisplay(uiState.waitForPulse, connectionState, uiState.monitor)
+    val display = setupDisplay(uiState.waitForPulse, connectionState, uiState.monitor, source)
+    val waitingForWatch = watch && uiState.watchCard == WatchCardState.Waiting
     val canStart = startEnabled(
         validation.isValid, uiState.waitForPulse, connectionState, bleGranted,
         scanInProgressSince != null, startingBpm, uiState.targetBpm,
-        uiState.monitor, uiState.totalDurationMin
-    )
+        uiState.monitor, uiState.totalDurationMin, source
+    ) && !waitingForWatch
     val showNote = !uiState.monitor && startingBpm != null && showMayNotReachNote(
         uiState.waitForPulse, connectionState, startingBpm, uiState.targetBpm,
-        uiState.totalDurationMin, uiState.rampDurationMin, maxOffset, descentPattern
+        uiState.totalDurationMin, uiState.rampDurationMin, maxOffset, descentPattern, source
     )
     // Steady-BPM warning only: Start stays enabled (user ruling 2026-10-10).
     val startingEqualsTarget = display.showStartingBpm && startingBpm != null && uiState.targetBpm != null &&
@@ -177,13 +200,17 @@ fun SetupScreen(
         ) {
 
             MetronomeEcg(
-                mode = if (connectionState) EcgMode.TRACE else EcgMode.FLAT,
+                mode = if (connectionState && !watch) EcgMode.TRACE else EcgMode.FLAT,
                 bpm = IDLE_DISPLAY_BPM,
                 height = 220.dp,
                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp)
             )
 
-            if (bleGranted) {
+            PulseFromCard(
+                source = source, onSource = viewModel::onSourceSelected,
+                watchCard = uiState.watchCard, onCheckAgain = viewModel::refreshWatch,
+                showOximeter = bleGranted
+            ) {
                 ConnectionCard(
                     connected = connectionState,
                     deviceName = deviceName,
@@ -191,12 +218,12 @@ fun SetupScreen(
                     // BleModule's own window state, which always clears; the old uiState flag stuck
                     // "Scanning…" (and disabled Rescan) when a tap while connected started no scan.
                     scanning = scanInProgressSince != null,
-                    onScan = { viewModel.onScanRequested() }
+                    onScan = { viewModel.onScanRequested() },
+                    embedded = true
                 )
-            } else {
-                PermissionNotice(onPermissionNoticeTapped)
             }
-            if (uiState.scanOutcome is ScanOutcome.NoneFound) {
+            if (!watch && !bleGranted) PermissionNotice(onPermissionNoticeTapped)
+            if (!watch && uiState.scanOutcome is ScanOutcome.NoneFound) {
                 Text(
                     "No pulse oximeter found — make sure it's powered on and in range, then try again",
                     color = PmColors.RedText, fontSize = 13.sp, lineHeight = 19.sp,
@@ -285,13 +312,31 @@ fun SetupScreen(
                     SessionStateBus.clearAlarm()
                 })
             }
-            PillButton(
-                display.startLabel,
-                onClick = {
-                    onStartSession(resolveStartMode(uiState.waitForPulse, connectionState, uiState.monitor))
-                },
-                enabled = canStart
-            )
+            if (waitingForWatch) {
+                // A quiet raised pill: the request is in flight, so Start isn't pressable.
+                Box(
+                    Modifier.fillMaxWidth().height(58.dp).clip(RoundedCornerShape(29.dp)).background(PmColors.Surface2),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Waiting for watch…", color = PmColors.Muted,
+                        style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    )
+                }
+                Box(
+                    Modifier.fillMaxWidth().height(44.dp).clickable(onClick = viewModel::cancelWatchStart),
+                    contentAlignment = Alignment.Center
+                ) { Text("Cancel", color = PmColors.Muted, fontWeight = FontWeight.Medium, fontSize = 14.sp) }
+            } else {
+                PillButton(
+                    display.startLabel,
+                    onClick = {
+                        if (watch) viewModel.startWithWatch()
+                        else onStartSession(resolveStartMode(uiState.waitForPulse, connectionState, uiState.monitor))
+                    },
+                    enabled = canStart
+                )
+            }
             if (startingEqualsTarget) {
                 Text(
                     "Starting BPM is equal to Target BPM",
@@ -328,12 +373,15 @@ private const val IDLE_DISPLAY_BPM = 66.0
 
 @Composable
 private fun ConnectionCard(
-    connected: Boolean, deviceName: String?, battery: Int?, scanning: Boolean, onScan: () -> Unit
+    connected: Boolean, deviceName: String?, battery: Int?, scanning: Boolean, onScan: () -> Unit,
+    embedded: Boolean = false
 ) {
     val dot = when { connected -> PmColors.Green; scanning -> PmColors.Brass; else -> PmColors.Dim }
     Row(
-        Modifier.padding(horizontal = 16.dp).padding(top = 8.dp).fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp)).background(PmColors.Surface)
+        // Embedded in the Pulse-from card, which supplies the surface and outer spacing.
+        (if (embedded) Modifier.fillMaxWidth()
+        else Modifier.padding(horizontal = 16.dp).padding(top = 8.dp).fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp)).background(PmColors.Surface))
             .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -372,6 +420,121 @@ private fun ConnectionCard(
             onClick = onScan,
             enabled = !scanning
         )
+    }
+}
+
+/**
+ * The Pulse-from card: a PULSE FROM selector row, then the oximeter connection row (via [oximeter],
+ * shown only with Bluetooth permission) or the watch status row.
+ */
+@Composable
+private fun PulseFromCard(
+    source: PulseSourceKind, onSource: (PulseSourceKind) -> Unit,
+    watchCard: WatchCardState?, onCheckAgain: () -> Unit,
+    showOximeter: Boolean, oximeter: @Composable () -> Unit
+) {
+    var menu by remember { mutableStateOf(false) }
+    val watch = source == PulseSourceKind.WATCH
+    Column(
+        Modifier.padding(horizontal = 16.dp).padding(top = 8.dp).fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp)).background(PmColors.Surface)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            MonoLabel("Pulse from")
+            Box {
+                Row(
+                    Modifier.height(44.dp).clip(RoundedCornerShape(22.dp)).background(PmColors.Surface2)
+                        .clickable { menu = true }.padding(start = 16.dp, end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        if (watch) "Watch" else "Oximeter", color = PmColors.Text,
+                        style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                    )
+                    Text("▾", color = PmColors.Muted, fontSize = 13.sp)
+                }
+                DropdownMenu(
+                    expanded = menu, onDismissRequest = { menu = false },
+                    modifier = Modifier.width(210.dp), containerColor = PmColors.Surface2,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    listOf(PulseSourceKind.OXIMETER to "Oximeter", PulseSourceKind.WATCH to "Watch").forEach { (kind, label) ->
+                        val selected = kind == source
+                        Row(
+                            Modifier.padding(horizontal = 6.dp).fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp))
+                                .background(if (selected) PmColors.Text.copy(alpha = 0.06f) else Color.Transparent)
+                                .clickable { menu = false; onSource(kind) }.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                label, color = PmColors.Text,
+                                style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                            )
+                            if (selected) Text("✓", color = PmColors.Brass, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
+        if (watch) {
+            RowDivider()
+            WatchStatusRow(watchCard, onCheckAgain)
+        } else if (showOximeter) {
+            RowDivider()
+            oximeter()
+        }
+    }
+}
+
+/** The watch half of the Pulse-from card: status dot, title, name, message and the Check again pill. */
+@Composable
+private fun WatchStatusRow(card: WatchCardState?, onCheckAgain: () -> Unit) {
+    val copy = card?.let { watchCardCopy(it) }
+    val dot = when (card) {
+        is WatchCardState.Ready -> PmColors.Green
+        WatchCardState.Waiting -> PmColors.Brass
+        else -> PmColors.Dim
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (copy != null) {
+                Box(
+                    Modifier.size(17.dp).clip(CircleShape).background(dot.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) { Box(Modifier.size(9.dp).clip(CircleShape).background(dot)) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        copy.title, color = PmColors.Text,
+                        style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                    )
+                    copy.sub?.let {
+                        Text(
+                            it, color = PmColors.Muted, style = TextStyle(fontFamily = PmFonts.Mono, fontSize = 11.sp), maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                copy.pill?.let { OutlinePill(it, onClick = onCheckAgain, enabled = true) }
+            }
+        }
+        copy?.message?.let {
+            Text(
+                it,
+                color = if (card is WatchCardState.CantStart && card.reason == CantStartReason.NOT_REACHABLE) PmColors.RedText else PmColors.Muted,
+                fontSize = 12.sp, lineHeight = 17.sp,
+                modifier = Modifier.padding(start = 37.dp, end = 16.dp, bottom = 14.dp)
+            )
+        }
     }
 }
 
