@@ -21,6 +21,9 @@ import com.austinlinux.pulsemetronome.ble.SharedPreferencesDeviceAddressStore
 import com.austinlinux.pulsemetronome.data.AppDatabase
 import com.austinlinux.pulsemetronome.source.PulseSource
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.watch.DataLayerWatchTransport
+import com.austinlinux.pulsemetronome.source.watch.WatchLink
+import com.austinlinux.pulsemetronome.source.watch.WatchPulseSource
 import com.austinlinux.pulsemetronome.data.IncompleteSessionRecovery
 import com.austinlinux.pulsemetronome.ui.history.cleanUpPendingDeletes
 import com.austinlinux.pulsemetronome.ui.settings.SettingsRepository
@@ -38,9 +41,16 @@ class PulseMetronomeApp : Application() {
         BleModule(this, SharedPreferencesDeviceAddressStore(this))
     }
 
-    /** The session's pulse provider for [kind]; only the oximeter exists so far. */
+    val watchTransport: DataLayerWatchTransport by lazy { DataLayerWatchTransport(this) }
+    val watchLink: WatchLink by lazy { WatchLink(watchTransport) }
+    val watchPulseSource: WatchPulseSource by lazy {
+        WatchPulseSource(watchLink, watchTransport, appScope, nowMs = { System.currentTimeMillis() })
+    }
+
+    /** The session's pulse provider for [kind]. */
     fun pulseSourceFor(kind: PulseSourceKind): PulseSource = when (kind) {
-        PulseSourceKind.OXIMETER, PulseSourceKind.WATCH -> bleModule
+        PulseSourceKind.OXIMETER -> bleModule
+        PulseSourceKind.WATCH -> watchPulseSource
     }
 
     val database: AppDatabase by lazy { AppDatabase.instance(this) }
@@ -73,6 +83,8 @@ class PulseMetronomeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         startDebugCapture()
+        // App-scoped Data Layer listeners (messages and log channels); Task 10 consumes watchTransport.incomingLogs.
+        watchTransport.start()
         // Must run before any session UI is shown, so a mid-session process death from a
         // PRIOR launch is reflected in History as INCOMPLETE rather than silently staying
         // "in progress" forever (Task 17).

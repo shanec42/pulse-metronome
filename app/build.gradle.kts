@@ -169,6 +169,10 @@ dependencies {
     // would otherwise pin the test APK to the 1.6.3 that navigation-compose brings, and MigrationTest crashes.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    implementation(project(":wearlink"))
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
+    implementation("androidx.wear:wear-remote-interactions:1.1.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
