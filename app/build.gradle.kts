@@ -51,6 +51,25 @@ val releaseSigningConfig = if (!releaseSigningProps.exists()) null else {
     }
 }
 
+// Debug-capture Upload comes from an untracked firebase.properties (projectId, apiKey, storageBucket,
+// appId.debug, appId.watchtest). Without it the build still works and Upload is hidden (UPLOAD_CONFIGURED=false).
+val firebaseProps = Properties().apply {
+    val f = rootProject.file("firebase.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun firebaseProp(key: String) = firebaseProps.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() }
+
+/** Adds the Firebase BuildConfig fields to a debug-tools build type; Upload stays off unless all four values exist. */
+fun com.android.build.api.dsl.ApplicationBuildType.configureFirebaseUpload(appIdKey: String) {
+    val values = listOf("projectId", "apiKey", "storageBucket", appIdKey).map { firebaseProp(it) }
+    fun q(v: String?) = "\"" + (v ?: "") + "\""
+    buildConfigField("boolean", "UPLOAD_CONFIGURED", (values.all { it != null }).toString())
+    buildConfigField("String", "FIREBASE_PROJECT_ID", q(values[0]))
+    buildConfigField("String", "FIREBASE_API_KEY", q(values[1]))
+    buildConfigField("String", "FIREBASE_STORAGE_BUCKET", q(values[2]))
+    buildConfigField("String", "FIREBASE_APP_ID", q(values[3]))
+}
+
 val checkReleaseSigning by tasks.registering {
     val error = releaseSigningError
     doLast { if (error != null) throw GradleException(error) }
@@ -89,6 +108,7 @@ android {
         versionName = project.property("pm.versionName") as String
         manifestPlaceholders["appLabel"] = "Pulse Metronome"
         buildConfigField("boolean", "DEBUG_TOOLS", "false")
+        buildConfigField("boolean", "UPLOAD_CONFIGURED", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -97,6 +117,7 @@ android {
             applicationIdSuffix = ".debug"
             manifestPlaceholders["appLabel"] = "Pulse Metronome (dev)"
             buildConfigField("boolean", "DEBUG_TOOLS", "true")
+            configureFirebaseUpload("appId.debug")
         }
         release {
             isMinifyEnabled = true
@@ -112,6 +133,7 @@ android {
             manifestPlaceholders["appLabel"] = "Pulse Metronome (watch test)"
             matchingFallbacks += "release"
             buildConfigField("boolean", "DEBUG_TOOLS", "true")
+            configureFirebaseUpload("appId.watchtest")
             if (releaseSigningConfig != null) signingConfig = releaseSigningConfig
         }
     }
@@ -132,6 +154,7 @@ android {
             manifest.srcFile("src/debugTools/AndroidManifest.xml")
             res.srcDirs("src/debugTools/res")
             java.srcDirs("src/debugTools/java")
+            kotlin.srcDir("src/debugTools/java")
         }
     }
 }
@@ -173,6 +196,15 @@ dependencies {
     implementation(project(":wearlink"))
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
     implementation("androidx.wear:wear-remote-interactions:1.1.0")
+
+    // Debug capture Upload only: release never links Firebase (and so never needs INTERNET).
+    val firebaseBom = platform("com.google.firebase:firebase-bom:34.19.0")
+    debugImplementation(firebaseBom)
+    "watchtestImplementation"(firebaseBom)
+    debugImplementation("com.google.firebase:firebase-storage")
+    debugImplementation("com.google.firebase:firebase-auth")
+    "watchtestImplementation"("com.google.firebase:firebase-storage")
+    "watchtestImplementation"("com.google.firebase:firebase-auth")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

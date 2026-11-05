@@ -15,3 +15,5 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+# Firebase project ids and keys for debug-capture Upload
+firebase.properties
