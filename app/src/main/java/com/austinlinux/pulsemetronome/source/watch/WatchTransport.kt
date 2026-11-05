@@ -51,7 +51,7 @@ const val WATCH_START_URI = "pulsemetronome://start"
 class DataLayerWatchTransport(private val context: Context) : WatchTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val messages = MutableSharedFlow<Pair<String, WatchMessage>>(extraBufferCapacity = 64)
-    private val logs = MutableSharedFlow<Pair<String, ByteArray>>(extraBufferCapacity = 16)
+    private val logs = MutableSharedFlow<Pair<String, ByteArray>>(extraBufferCapacity = 2)
     override val incoming: Flow<Pair<String, WatchMessage>> = messages
     override val incomingLogs: Flow<Pair<String, ByteArray>> = logs
 
@@ -65,8 +65,12 @@ class DataLayerWatchTransport(private val context: Context) : WatchTransport {
             val sessionId = channel.path.removePrefix(prefix)
             scope.launch {
                 try {
-                    val bytes = channelClient.getInputStream(channel).await().use { it.readBytes() }
-                    logs.tryEmit(sessionId to bytes)
+                    // Release builds never store watch logs, so don't read (or buffer) anything for them.
+                    if (DebugCapture.isAvailable(context)) {
+                        val bytes = channelClient.getInputStream(channel).await().use { readCapped(it) }
+                        if (bytes == null) DebugCapture.event("WATCH") { "log $sessionId dropped: over $MAX_WATCH_LOG_BYTES bytes" }
+                        else logs.tryEmit(sessionId to bytes)
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

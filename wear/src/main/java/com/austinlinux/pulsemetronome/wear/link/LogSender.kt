@@ -16,6 +16,16 @@ class LogSender(context: Context, private val runLog: WatchRunLog) {
 
     /** Sends every pending log; a log that fails stays pending for the next run. */
     suspend fun sendPending() {
+        // endService() and onDestroy() both call this; a second concurrent run would resend the same files.
+        if (!inFlight.compareAndSet(false, true)) return
+        try {
+            sendPendingLocked()
+        } finally {
+            inFlight.set(false)
+        }
+    }
+
+    private suspend fun sendPendingLocked() {
         val files = runLog.pending()
         if (files.isEmpty()) return
         try {
@@ -53,6 +63,7 @@ class LogSender(context: Context, private val runLog: WatchRunLog) {
     }
 
     private companion object {
+        val inFlight = java.util.concurrent.atomic.AtomicBoolean(false)
         const val TAG = "LogSender"
     }
 }

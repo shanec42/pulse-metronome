@@ -49,6 +49,22 @@ class WatchRunLogTest {
         assertTrue(log.pending().isEmpty())
     }
 
+    @Test fun finish_sanitizesSessionId() {
+        val log = log()
+        log.begin("../evil/id")
+        val f = log.finish()
+        assertEquals(log.pending().single().parentFile, f.parentFile)
+        assertEquals("___evil_id", WatchRunLog.sessionIdOf(f))
+    }
+
+    @Test fun pending_expiresLogsOlderThanSevenDays() {
+        val dir = tmp.newFolder()
+        val log = WatchRunLog(dir, clock = { 10L * 24 * 3600 * 1000 })
+        log.begin("old"); log.finish().setLastModified(1_000L)
+        log.begin("new"); val fresh = log.finish().also { it.setLastModified(9L * 24 * 3600 * 1000) }
+        assertEquals(listOf(fresh), log.pending())
+    }
+
     @Test fun finish_withoutBegin_isHarmless() {
         val log = log()
         assertTrue(log.pending().isEmpty())

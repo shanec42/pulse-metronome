@@ -50,7 +50,7 @@ class WatchRunLog(
     fun finish(): File {
         val id = checkNotNull(sessionId) { "finish() without begin()" }
         dir.mkdirs()
-        val f = File(dir, "$PREFIX$id$SUFFIX")
+        val f = File(dir, "$PREFIX${sanitize(id)}$SUFFIX")
         f.writeText(lines.joinToString(""), Charsets.UTF_8)
         sessionId = null
         lines.clear()
@@ -63,9 +63,14 @@ class WatchRunLog(
     fun isActive(): Boolean = sessionId != null
 
     /** Finished logs not yet confirmed sent, oldest first. */
-    fun pending(): List<File> =
-        dir.listFiles()?.filter { it.isFile && it.name.startsWith(PREFIX) && it.name.endsWith(SUFFIX) }
-            ?.sortedBy { it.lastModified() } ?: emptyList()
+    fun pending(): List<File> {
+        val all = dir.listFiles()?.filter { it.isFile && it.name.startsWith(PREFIX) && it.name.endsWith(SUFFIX) } ?: return emptyList()
+        // A log the phone never accepted is dropped after a week, matching the phone's retention.
+        val cutoff = clock() - EXPIRY_MS
+        val (old, fresh) = all.partition { it.lastModified() < cutoff }
+        old.forEach { it.delete() }
+        return fresh.sortedBy { it.lastModified() }
+    }
 
     /** Removes [f] once the phone has received it. */
     fun markSent(f: File) {
@@ -75,6 +80,10 @@ class WatchRunLog(
     companion object {
         private const val PREFIX = "runlog-"
         private const val SUFFIX = ".log"
+        private const val EXPIRY_MS = 7L * 24 * 3600 * 1000
+
+        /** File-name-safe form of a session id (it arrives off the wire): other characters become '_'. */
+        fun sanitize(id: String): String = id.replace(Regex("[^A-Za-z0-9_-]"), "_").ifEmpty { "unknown" }
 
         /** The session id encoded in a pending log's file name. */
         fun sessionIdOf(f: File): String = f.name.removePrefix(PREFIX).removeSuffix(SUFFIX)
