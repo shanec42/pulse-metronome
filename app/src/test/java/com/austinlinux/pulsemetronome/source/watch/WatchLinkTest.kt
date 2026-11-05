@@ -137,6 +137,22 @@ class WatchLinkTest {
         assertEquals(1, t.openedApp.size)
     }
 
+    @Test fun requestStart_noAckAfterOpen_resendsEvery2sUntilAck() = runTest {
+        val t = fake()
+        val r = async { link(t).requestStart() }
+        runCurrent()
+        advanceTimeBy(3_001)
+        assertEquals(2, t.sentOf<WatchMessage.Start>().size)
+        advanceTimeBy(2_000)
+        assertEquals(3, t.sentOf<WatchMessage.Start>().size)
+        advanceTimeBy(2_000)
+        assertEquals(4, t.sentOf<WatchMessage.Start>().size)
+        t.deliver("n1", WatchMessage.Ack("sid", true, null))
+        assertEquals(StartResult.Started(node, "sid"), r.await())
+        advanceTimeBy(6_000)
+        assertEquals(4, t.sentOf<WatchMessage.Start>().size)
+    }
+
     @Test fun requestStart_ackWithin3s_doesNotOpenWatchApp() = runTest {
         val t = fake()
         val r = async { link(t).requestStart() }

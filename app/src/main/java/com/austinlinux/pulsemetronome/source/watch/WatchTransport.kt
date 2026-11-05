@@ -115,6 +115,7 @@ class DataLayerWatchTransport(private val context: Context) : WatchTransport {
         return safely(false) {
             val future = RemoteActivityHelper(context).startRemoteActivity(intent, nodeId)
             suspendCancellableCoroutine { cont ->
+                cont.invokeOnCancellation { future.cancel(true) }
                 future.addListener({ cont.resume(runCatching { future.get() }.isSuccess) }, Runnable::run)
             }
         }

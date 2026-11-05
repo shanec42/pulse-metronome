@@ -30,6 +30,7 @@ sealed interface StartResult {
 }
 
 private const val STOP_REPLY_INTERVAL_MS = 5_000L
+private const val START_RESEND_INTERVAL_MS = 2_000L
 
 /** Start/stop handshake with the watch app over a [WatchTransport]. */
 class WatchLink(
@@ -105,13 +106,19 @@ class WatchLink(
                 .first()
         }
         transport.send(node.id, WatchMessage.Start(sid))
-        // No Ack soon: the watch app may not be running, so ask the OS to open it, then send Start once more.
+        // No Ack soon: the watch app may not be running, so ask the OS to open it, then keep resending Start.
         withTimeoutOrNull(openAppAfterMs) { ack.await() } ?: run {
             if (!ack.isCompleted) transport.openWatchApp(node.id)
             // The Ack may have landed while the open request was suspended; yield lets the collector see it.
             yield()
-            if (!ack.isCompleted) transport.send(node.id, WatchMessage.Start(sid))
-            ack.await()
+            // The open future completes when the watch issues startActivity, not when it is resumed, so a cold
+            // start can drop the first resend at the foreground gate; repeat Starts are no-op re-Acks.
+            var result: WatchMessage.Ack? = null
+            while (result == null && !ack.isCompleted) {
+                transport.send(node.id, WatchMessage.Start(sid))
+                result = withTimeoutOrNull(START_RESEND_INTERVAL_MS) { ack.await() }
+            }
+            result ?: ack.await()
         }
     }
 
