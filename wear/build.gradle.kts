@@ -91,4 +91,10 @@ dependencies {
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
     implementation("androidx.wear:wear-ongoing:1.1.0")
     implementation("androidx.health:health-services-client:1.1.0")
+    // Health Services' ExerciseClient returns ListenableFuture, which is not on the runtime classpath without Guava.
+    implementation("com.google.guava:guava:33.4.8-android")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
+    testImplementation("junit:junit:4.13.2")
 }
