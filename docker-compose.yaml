@@ -37,6 +37,9 @@ services:
       - .:/workspace
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority:ro
+      # The emulator pre-authorizes $HOME/.android/adbkey.pub, so share the host adb server's
+      # public key (public half only) and emulators never show up as "unauthorized".
+      - ${HOME}/.android/adbkey.pub:/workspace/.android-emulator/home/.android/adbkey.pub:ro
     working_dir: /workspace
     environment:
       - HOME=/workspace/.android-emulator/home
