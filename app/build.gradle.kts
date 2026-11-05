@@ -104,8 +104,8 @@ android {
         applicationId = "com.austinlinux.pulsemetronome"
         minSdk = 26
         targetSdk = 36
-        versionCode = (project.property("pm.versionCode") as String).toInt()
-        versionName = project.property("pm.versionName") as String
+        versionCode = rootProject.extra["pmVersionCode"] as Int
+        versionName = rootProject.extra["pmVersionName"] as String
         manifestPlaceholders["appLabel"] = "Pulse Metronome"
         buildConfigField("boolean", "DEBUG_TOOLS", "false")
         buildConfigField("boolean", "UPLOAD_CONFIGURED", "false")

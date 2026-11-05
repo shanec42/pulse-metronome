@@ -50,8 +50,8 @@ android {
         minSdk = 30
         targetSdk = 36
         // Watch builds sort above the phone's for the same release, so both halves can share one version track.
-        versionCode = (project.property("pm.versionCode") as String).toInt() + 1_000_000
-        versionName = project.property("pm.versionName") as String
+        versionCode = (rootProject.extra["pmVersionCode"] as Int) + 1_000_000
+        versionName = rootProject.extra["pmVersionName"] as String
         manifestPlaceholders["appLabel"] = "Pulse Metronome"
         buildConfigField("boolean", "DEBUG_TOOLS", "false")
     }
