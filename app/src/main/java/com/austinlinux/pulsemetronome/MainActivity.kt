@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
                     var bleQuietDenials by rememberSaveable { mutableStateOf(0) }  // consecutive denied-without-rationale results
                     var bleLaunchedAt by remember { mutableStateOf(0L) }
                     var bleLaunchFromTap by remember { mutableStateOf(false) }
+                    var bleRequested by remember { mutableStateOf(true) }  // whether the pending request included Bluetooth
                     fun openAppSettings() = startActivity(
                         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
                     )
@@ -174,19 +175,21 @@ class MainActivity : ComponentActivity() {
                         bleGranted = bleNow()
                         val rationale = blePermissions.any { ActivityCompat.shouldShowRequestPermissionRationale(this, it) }
                         bleRationaleSeen = bleRationaleSeen || rationale
-                        val quietDenial = !bleGranted && !rationale
+                        // A notification-only request says nothing about Bluetooth, so it must not feed the denial counters.
+                        val quietDenial = bleRequested && !bleGranted && !rationale
                         val noDialog = quietDenial && SystemClock.elapsedRealtime() - bleLaunchedAt < BLE_AUTO_DENY_MS
-                        bleQuietDenials = if (quietDenial) bleQuietDenials + 1 else 0
+                        if (bleRequested) bleQuietDenials = if (quietDenial) bleQuietDenials + 1 else 0
                         // Permanent after an explicit second "Don't allow" (rationale seen, now gone), after a dialog-less
                         // denial, or after two quiet denials in a row (backstop for a slow auto-deny; a user who really
                         // dismissed the dialog twice lands in Settings, which is still a working path to grant it).
-                        bleDeniedPermanently = quietDenial && (bleRationaleSeen || noDialog || bleQuietDenials >= 2)
+                        if (bleRequested) bleDeniedPermanently = quietDenial && (bleRationaleSeen || noDialog || bleQuietDenials >= 2)
                         // The tap's prompt never appeared: give it a visible result now instead of on the next tap.
                         if (bleLaunchFromTap && (noDialog || bleQuietDenials >= 2)) openAppSettings()
                     }
                     fun requestBle(permissions: List<String>, fromTap: Boolean) {
                         bleLaunchedAt = SystemClock.elapsedRealtime()
                         bleLaunchFromTap = fromTap
+                        bleRequested = PermissionsManager.countsAsBleDenial(permissions, blePermissions)
                         permissionLauncher.launch(permissions.toTypedArray())
                     }
                     var permissionsAsked by rememberSaveable { mutableStateOf(false) }
@@ -278,8 +281,10 @@ class MainActivity : ComponentActivity() {
                                     if (!permissionsGranted && !permissionsAsked) {
                                         permissionsAsked = true
                                         // The Watch source never uses the phone's Bluetooth, so only ask for notifications.
-                                        val toRequest = if (app.sourceChoiceStore.choice.value == PulseSourceKind.WATCH)
-                                            requiredPermissions.filter { it !in blePermissions } else requiredPermissions.toList()
+                                        val toRequest = PermissionsManager.initialRequest(
+                                            requiredPermissions.toList(), blePermissions,
+                                            watchSource = app.sourceChoiceStore.choice.value == PulseSourceKind.WATCH
+                                        ) { ContextCompat.checkSelfPermission(this@MainActivity, it) == PackageManager.PERMISSION_GRANTED }
                                         if (toRequest.isNotEmpty()) requestBle(toRequest, fromTap = false)
                                     }
                                 }
