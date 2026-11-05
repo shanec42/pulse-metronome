@@ -103,6 +103,17 @@ class WatchStartCoordinatorTest {
         assertEquals("a start that became a session must not send Stop", 0, r.ended)
     }
 
+    @Test fun consumeAfterLeave_doesNotBeginASession() = runTest {
+        val r = rig()
+        r.c.start(); runCurrent()
+        r.ack.complete(started); runCurrent()
+        r.c.leave()
+        var began = false
+        r.c.consume { began = true; true }
+        assertEquals(false, began)
+        assertEquals(1, r.ended)
+    }
+
     @Test fun cancelWhileWaiting_returnsToAvailability() = runTest {
         val r = rig()
         r.c.start(); runCurrent()

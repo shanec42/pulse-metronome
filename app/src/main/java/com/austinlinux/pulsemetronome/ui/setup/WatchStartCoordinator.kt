@@ -69,6 +69,8 @@ class WatchStartCoordinator(
      * could be built, and the watch is then stopped.
      */
     fun consume(begin: () -> Boolean) {
+        // A start already dropped by leave()/cancel() has had its Stop sent; it must not begin a session.
+        if (!pending) return
         // Cleared before begin(): it navigates to Live, which stops Setup synchronously and calls leave().
         // With pending still set, leave() would send Stop to the watch the session is about to use.
         pending = false
