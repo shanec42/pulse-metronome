@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.wear.remote.interactions.RemoteActivityHelper
+import com.austinlinux.pulsemetronome.debug.DebugCapture
 import com.austinlinux.pulsemetronome.wearlink.WatchMessage
 import com.austinlinux.pulsemetronome.wearlink.WearPaths
 import com.austinlinux.pulsemetronome.wearlink.decodeWatchMessage
@@ -63,9 +64,16 @@ class DataLayerWatchTransport(private val context: Context) : WatchTransport {
             if (!channel.path.startsWith(prefix)) return
             val sessionId = channel.path.removePrefix(prefix)
             scope.launch {
-                runCatching {
+                try {
                     val bytes = channelClient.getInputStream(channel).await().use { it.readBytes() }
                     logs.tryEmit(sessionId to bytes)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    DebugCapture.event("WATCH") { "log channel $sessionId failed: $e" }
+                } finally {
+                    runCatching { channelClient.close(channel).await() }
+                        .onFailure { e -> DebugCapture.event("WATCH") { "closing log channel $sessionId failed: $e" } }
                 }
             }
         }

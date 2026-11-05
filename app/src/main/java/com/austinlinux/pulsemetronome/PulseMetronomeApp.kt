@@ -87,8 +87,11 @@ class PulseMetronomeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         startDebugCapture()
-        // App-scoped Data Layer listeners (messages and log channels); Task 10 consumes watchTransport.incomingLogs.
+        // App-scoped Data Layer listeners (messages and log channels).
         watchTransport.start()
+        appScope.launch {
+            watchTransport.incomingLogs.collect { (sessionId, bytes) -> DebugCapture.addWatchLog(sessionId, bytes) }
+        }
         watchLink.startResponder(appScope)
         // Must run before any session UI is shown, so a mid-session process death from a
         // PRIOR launch is reflected in History as INCOMPLETE rather than silently staying

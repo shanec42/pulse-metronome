@@ -193,9 +193,32 @@ object DebugCapture {
         listeners.add(l)
     }
 
-    /** Capture files, oldest first. */
+    /** Test seam: point capture at [dir] without a Context. */
+    internal fun initForTest(dir: File) {
+        this.dir = dir
+        available = true
+    }
+
+    /** Stores a watch run log as `watch-{sessionId}.log` beside the capture files; no-op unless capture is available. */
+    @Synchronized
+    fun addWatchLog(sessionId: String, bytes: ByteArray) {
+        val d = dir ?: return
+        if (!available) return
+        try {
+            d.mkdirs()
+            File(d, watchLogFileName(sessionId)).writeBytes(bytes)
+            // Old watch logs are not covered by the day-file pruning, so trim them here.
+            val cutoff = System.currentTimeMillis() - CAPTURE_KEEP_DAYS * 24L * 3600 * 1000
+            d.listFiles()?.filter { isWatchLogFileName(it.name) && it.lastModified() < cutoff }?.forEach { it.delete() }
+            event("WATCH") { "stored watch log $sessionId (${bytes.size} bytes)" }
+        } catch (e: Exception) {
+            event("WATCH") { "storing watch log $sessionId failed: $e" }
+        }
+    }
+
+    /** Capture files and stored watch logs, oldest name first. */
     fun files(): List<File> =
-        dir?.listFiles()?.filter { it.isFile && isCaptureFileName(it.name) }?.sortedBy { it.name } ?: emptyList()
+        dir?.listFiles()?.filter { it.isFile && (isCaptureFileName(it.name) || isWatchLogFileName(it.name)) }?.sortedBy { it.name } ?: emptyList()
 
     /** Deletes all capture files then logs the outcome; blocks, so call off the main thread. */
     @Synchronized
@@ -212,6 +235,7 @@ object DebugCapture {
         } else {
             files().forEach { it.delete() }
         }
+        dir?.listFiles()?.filter { isWatchLogFileName(it.name) }?.forEach { it.delete() }
         // Old shared zips hold a full copy of the capture, so Clear removes them as well.
         runCatching { appContext?.let { File(it.cacheDir, CAPTURE_SHARE_DIR).listFiles()?.forEach { f -> f.delete() } } }
         if (ok) event("APP") { "capture cleared" } else event("APP") { "capture clear failed" }

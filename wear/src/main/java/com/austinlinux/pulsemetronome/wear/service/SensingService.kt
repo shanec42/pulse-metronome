@@ -16,11 +16,15 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import java.io.File
 import androidx.core.app.NotificationCompat
 import androidx.wear.ongoing.OngoingActivity
 import androidx.wear.ongoing.Status
+import com.austinlinux.pulsemetronome.wear.BuildConfig
 import com.austinlinux.pulsemetronome.wear.R
+import com.austinlinux.pulsemetronome.wear.link.LogSender
 import com.austinlinux.pulsemetronome.wear.link.PhoneLink
+import com.austinlinux.pulsemetronome.wear.log.WatchRunLog
 import com.austinlinux.pulsemetronome.wear.sensing.HealthServicesHeartRateSensor
 import com.austinlinux.pulsemetronome.wear.sensing.HeartRateSensor
 import com.austinlinux.pulsemetronome.wear.session.WatchSessionMachine
@@ -48,6 +52,9 @@ class SensingService : Service() {
     private val machine = WatchSessionMachine(nowMs = { SystemClock.elapsedRealtime() })
     private lateinit var link: PhoneLink
     private lateinit var sensor: HeartRateSensor
+    // Null outside debug and watchtest builds, so release never records or sends a log.
+    private var runLog: WatchRunLog? = null
+    private var logSender: LogSender? = null
     private var activeSessionId: String? = null
     private var tickJob: Job? = null
     private var foregroundStarted = false
@@ -62,12 +69,18 @@ class SensingService : Service() {
         isRunning = true
         link = PhoneLink(this)
         sensor = HealthServicesHeartRateSensor(this)
+        if (BuildConfig.DEBUG_TOOLS) {
+            val log = WatchRunLog(File(filesDir, "runlogs"))
+            runLog = log
+            logSender = LogSender(this, log)
+        }
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Heart rate sensing", NotificationManager.IMPORTANCE_LOW),
         )
         scope.launch {
             machine.ui.collect { state ->
                 _uiState.value = state
+                runLog?.event("STATE", state.toString())
                 if (foregroundStarted) updateNotification(state)
             }
         }
@@ -103,6 +116,7 @@ class SensingService : Service() {
     private fun handleOther(message: WatchMessage?) {
         when (message) {
             is WatchMessage.Stop -> {
+                runLog?.event("STOP", "from phone session=${message.sessionId}")
                 machine.onStop(message.sessionId)
                 if (machine.ui.value == WatchUiState.Ready) endService()
             }
@@ -118,13 +132,22 @@ class SensingService : Service() {
     private fun handleStart(start: WatchMessage.Start, ack: WatchMessage.Ack) {
         val newSession = activeSessionId != start.sessionId
         activeSessionId = start.sessionId
+        if (newSession) {
+            runLog?.begin(start.sessionId)
+            runLog?.event("START", "from phone; ack ok=${ack.ok} reason=${ack.reason}")
+        }
         acquireWakeLock()
         if (newSession) {
             // Ack goes out before any queued Status/Sample, or the phone would answer them with Stop.
             outboxJob?.cancel()
             outboxJob = scope.launch {
                 link.send(ack)
-                machine.outbox.collect { message -> if (!link.send(message)) machine.onSendFailed() }
+                machine.outbox.collect { message ->
+                    if (!link.send(message)) {
+                        runLog?.event("LINK", "send failed: ${message.javaClass.simpleName}")
+                        machine.onSendFailed()
+                    }
+                }
             }
         } else {
             scope.launch { link.send(ack) } // the phone's resend of Start: repeat the Ack only
@@ -139,6 +162,7 @@ class SensingService : Service() {
                     wakeLock?.acquire(WAKE_LOCK_MS) // renewed while ticking so a dead service cannot hold the CPU
                     if (machine.tick()) {
                         Log.i(TAG, "No phone contact for the safety window; stopping")
+                        runLog?.event("SAFETY", "no phone contact for the safety window; stopping")
                         endService()
                         break
                     }
@@ -151,10 +175,17 @@ class SensingService : Service() {
     private fun startSensor() = sensor.start(sensorListener)
 
     private val sensorListener = object : HeartRateSensor.Listener {
-        override fun onBpm(bpm: Int) = machine.onSample(bpm)
-        override fun onContact(lost: Boolean) = machine.onContact(lost)
+        override fun onBpm(bpm: Int) {
+            runLog?.event("SAMPLE", "bpm=$bpm")
+            machine.onSample(bpm)
+        }
+        override fun onContact(lost: Boolean) {
+            runLog?.event("SENSOR", "contact lost=$lost")
+            machine.onContact(lost)
+        }
         override fun onFailed() {
             Log.w(TAG, "Heart-rate sensor failed")
+            runLog?.event("SENSOR", "failed")
             machine.onContact(lost = true)
         }
     }
@@ -189,9 +220,21 @@ class SensingService : Service() {
         outboxJob = null
         sensor.stop()
         releaseWakeLock()
+        finishRunLog()
         sendBroadcast(Intent(ACTION_FINISH_ACTIVITY).setPackage(packageName))
         // By id, so a Start that arrived meanwhile is not killed.
         stopSelf(lastStartId)
+    }
+
+    /** Closes the run's log (if one is open) and sends every pending log to the phone off the service's lifetime. */
+    private fun finishRunLog() {
+        val log = runLog ?: return
+        val sender = logSender ?: return
+        if (log.isActive()) {
+            log.event("END", "run ended")
+            runCatching { log.finish() }.onFailure { Log.w(TAG, "run log write failed", it) }
+        }
+        detachedScope.launch { sender.sendPending() }
     }
 
     private fun ensureForeground(): Boolean {
@@ -244,6 +287,7 @@ class SensingService : Service() {
         tickJob?.cancel()
         sensor.stop()
         releaseWakeLock()
+        finishRunLog()
         scope.cancel()
         super.onDestroy()
     }
