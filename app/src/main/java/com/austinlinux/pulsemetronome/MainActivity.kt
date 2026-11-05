@@ -344,8 +344,7 @@ class MainActivity : ComponentActivity() {
                                 // can't become a session must stop the watch, or it would sense with nobody listening.
                                 LaunchedEffect(Unit) {
                                     setupViewModel.watchStarted.collect {
-                                        if (beginSession(StartMode.WHEN_PULSE_DETECTED, PulseSourceKind.WATCH)) setupViewModel.onWatchStartConsumed()
-                                        else setupViewModel.onWatchStartFailed()
+                                        setupViewModel.consumeWatchStart { beginSession(StartMode.WHEN_PULSE_DETECTED, PulseSourceKind.WATCH) }
                                     }
                                 }
 

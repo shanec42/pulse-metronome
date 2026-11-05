@@ -259,11 +259,8 @@ class SetupViewModel(
     /** Cancel under "Waiting for watch…" (or after the Ack but before the session began). */
     fun cancelWatchStart() = watch.cancel()
 
-    /** The Activity started the session for the [watchStarted] event. */
-    fun onWatchStartConsumed() = watch.consumed()
-
-    /** The Activity couldn't start the session for the [watchStarted] event; the watch is stopped. */
-    fun onWatchStartFailed() = watch.failed()
+    /** Starts the session for the [watchStarted] event with [begin]; if it returns false the watch is stopped. */
+    fun consumeWatchStart(begin: () -> Boolean) = watch.consume(begin)
 
     /** Setup left the screen (navigation or ON_STOP): an unfinished watch start is abandoned. */
     fun onSetupLeft() = watch.leave()

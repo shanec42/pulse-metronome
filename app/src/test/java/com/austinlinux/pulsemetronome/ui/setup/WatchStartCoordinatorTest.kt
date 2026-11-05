@@ -49,7 +49,7 @@ class WatchStartCoordinatorTest {
         assertEquals(WatchCardState.Waiting, r.card)
         r.ack.complete(started); runCurrent()
         assertEquals(1, r.attached); assertEquals(1, r.events); assertEquals(0, r.ended)
-        r.c.consumed()
+        r.c.consume { true }
         r.c.leave()
         assertEquals("a consumed start must not be stopped on leaving Setup", 0, r.ended)
     }
@@ -90,8 +90,17 @@ class WatchStartCoordinatorTest {
         val r = rig()
         r.c.start(); runCurrent()
         r.ack.complete(started); runCurrent()
-        r.c.failed()
+        r.c.consume { false }
         assertEquals(1, r.ended)
+    }
+
+    @Test fun setupLeftWhileTheSessionStarts_keepsTheWatchRunning() = runTest {
+        val r = rig()
+        r.c.start(); runCurrent()
+        r.ack.complete(started); runCurrent()
+        // Live-test root cause: beginSession() navigates to Live, which stops Setup synchronously and calls leave().
+        r.c.consume { r.c.leave(); true }
+        assertEquals("a start that became a session must not send Stop", 0, r.ended)
     }
 
     @Test fun cancelWhileWaiting_returnsToAvailability() = runTest {

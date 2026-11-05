@@ -26,7 +26,7 @@ class WatchStartCoordinator(
     // A channel (not a SharedFlow) so a start isn't lost between the Ack and the collector subscribing.
     private val events = Channel<Unit>(Channel.BUFFERED)
 
-    /** Emits once per acknowledged start; the collector must answer with [consumed] or [failed]. */
+    /** Emits once per acknowledged start; the collector must answer with [consume]. */
     val started: Flow<Unit> = events.receiveAsFlow()
     private var job: Job? = null
     // True from attach until the Activity takes the event: the watch is sensing but no session exists yet.
@@ -64,11 +64,16 @@ class WatchStartCoordinator(
         }
     }
 
-    /** The Activity started the session for the last [started] event. */
-    fun consumed() { pending = false }
-
-    /** The Activity could not start a session for the last [started] event: stop the watch. */
-    fun failed() { dropPending() }
+    /**
+     * Runs the Activity's session start for the last [started] event; [begin] returns false when no session
+     * could be built, and the watch is then stopped.
+     */
+    fun consume(begin: () -> Boolean) {
+        // Cleared before begin(): it navigates to Live, which stops Setup synchronously and calls leave().
+        // With pending still set, leave() would send Stop to the watch the session is about to use.
+        pending = false
+        if (!begin()) endSession()
+    }
 
     /** Cancel under "Waiting for watch…", also valid after the Ack but before the session started. */
     fun cancel() {
