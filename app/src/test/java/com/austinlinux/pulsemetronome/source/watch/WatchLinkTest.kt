@@ -68,25 +68,59 @@ class WatchLinkTest {
         assertEquals(StartResult.Started(node, "sid"), link(t).requestStart())
     }
 
+    private fun stopsOf(t: FakeWatchTransport) = t.sent.filter { it.second is WatchMessage.Stop }
+
     @Test fun cancel_afterLateAck_sendsStop() = runTest {
         val t = fake()
-        val r = async { link(t).requestStart() }
+        val l = link(t).also { it.startResponder(backgroundScope) }
+        val r = async { l.requestStart() }
         runCurrent()
         r.cancel()
         runCurrent()
+        val before = stopsOf(t).size
         t.deliver("n1", WatchMessage.Ack("sid", true, null))
         runCurrent()
-        assertEquals(listOf("n1" to WatchMessage.Stop("sid")), t.sent.filter { it.second is WatchMessage.Stop })
+        assertEquals(before + 1, stopsOf(t).size)
+        assertEquals("n1" to WatchMessage.Stop("sid"), stopsOf(t).last())
     }
 
     @Test fun ackTimeout_thenLateAck_sendsStop() = runTest {
         val t = fake()
-        val r = async { link(t).requestStart() }
+        val l = link(t).also { it.startResponder(backgroundScope) }
+        val r = async { l.requestStart() }
         advanceTimeBy(10_001)
         r.await()
+        val before = stopsOf(t).size
+        advanceTimeBy(6_000)
         t.deliver("n1", WatchMessage.Ack("sid", true, null))
         runCurrent()
-        assertEquals(listOf("n1" to WatchMessage.Stop("sid")), t.sent.filter { it.second is WatchMessage.Stop })
+        assertEquals(before + 1, stopsOf(t).size)
+        // Rate limited: an immediate Sample from the same stale session gets no second Stop.
+        t.deliver("n1", WatchMessage.Sample("sid", 70))
+        runCurrent()
+        assertEquals(before + 1, stopsOf(t).size)
+    }
+
+    @Test fun responder_ignoresInFlightAndStartedSessions() = runTest {
+        val t = fake()
+        val l = link(t).also { it.startResponder(backgroundScope) }
+        val r = async { l.requestStart() }
+        runCurrent()
+        t.deliver("n1", WatchMessage.Ack("sid", true, null))
+        assertEquals(StartResult.Started(node, "sid"), r.await())
+        t.deliver("n1", WatchMessage.Sample("sid", 70))
+        t.deliver("n1", WatchMessage.Status("sid", com.austinlinux.pulsemetronome.wearlink.WatchStatus.SENSING))
+        runCurrent()
+        assertTrue(stopsOf(t).isEmpty())
+    }
+
+    @Test fun requestStart_ackDuringOpenWatchApp_doesNotResend() = runTest {
+        val t = fake()
+        t.onOpen = { id -> t.deliver(id, WatchMessage.Ack("sid", true, null)) }
+        val r = async { link(t).requestStart() }
+        advanceTimeBy(3_001)
+        assertEquals(StartResult.Started(node, "sid"), r.await())
+        assertEquals(1, t.sentOf<WatchMessage.Start>().size)
     }
 
     @Test fun requestStart_noAckIn3s_opensWatchAppAndResends() = runTest {

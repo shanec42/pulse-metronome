@@ -13,6 +13,7 @@ import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.ChannelClient
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.Wearable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -80,30 +81,39 @@ class DataLayerWatchTransport(private val context: Context) : WatchTransport {
         }
     }
 
-    override suspend fun connectedNodes(): List<WatchNode> = runCatching {
+    override suspend fun connectedNodes(): List<WatchNode> = safely(emptyList()) {
         Wearable.getNodeClient(context).connectedNodes.await().map { WatchNode(it.id, it.displayName, it.isNearby) }
-    }.getOrDefault(emptyList())
+    }
 
-    override suspend fun nodesWithApp(): List<WatchNode> = runCatching {
+    override suspend fun nodesWithApp(): List<WatchNode> = safely(emptyList()) {
         Wearable.getCapabilityClient(context)
             .getCapability(WearPaths.CAPABILITY, CapabilityClient.FILTER_REACHABLE).await()
             .nodes.map { WatchNode(it.id, it.displayName, it.isNearby) }
-    }.getOrDefault(emptyList())
+    }
 
-    override suspend fun send(nodeId: String, msg: WatchMessage): Boolean = runCatching {
+    override suspend fun send(nodeId: String, msg: WatchMessage): Boolean = safely(false) {
         messageClient.sendMessage(nodeId, msg.path(), msg.encode()).await()
         true
-    }.getOrDefault(false)
+    }
 
     override suspend fun openWatchApp(nodeId: String): Boolean {
         val intent = Intent(Intent.ACTION_VIEW)
             .addCategory(Intent.CATEGORY_BROWSABLE)
             .setData(Uri.parse(WATCH_START_URI))
-        return runCatching {
+        return safely(false) {
             val future = RemoteActivityHelper(context).startRemoteActivity(intent, nodeId)
             suspendCancellableCoroutine { cont ->
                 future.addListener({ cont.resume(runCatching { future.get() }.isSuccess) }, Runnable::run)
             }
-        }.getOrDefault(false)
+        }
+    }
+
+    /** Returns [default] on any failure except cancellation, which must propagate. */
+    private suspend fun <T> safely(default: T, block: suspend () -> T): T = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        default
     }
 }

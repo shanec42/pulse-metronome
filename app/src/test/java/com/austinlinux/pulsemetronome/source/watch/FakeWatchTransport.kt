@@ -14,6 +14,8 @@ class FakeWatchTransport : WatchTransport {
     /** Called synchronously inside send(), before it returns; lets a test deliver an Ack "immediately". */
     var onSend: (suspend (String, WatchMessage) -> Unit)? = null
 
+    var onOpen: (suspend (String) -> Unit)? = null
+
     val incomingFlow = MutableSharedFlow<Pair<String, WatchMessage>>(extraBufferCapacity = 64)
     override val incoming: Flow<Pair<String, WatchMessage>> = incomingFlow
     override val incomingLogs: Flow<Pair<String, ByteArray>> = MutableSharedFlow()
@@ -28,6 +30,7 @@ class FakeWatchTransport : WatchTransport {
 
     override suspend fun openWatchApp(nodeId: String): Boolean {
         openedApp += nodeId
+        onOpen?.invoke(nodeId)
         return true
     }
 

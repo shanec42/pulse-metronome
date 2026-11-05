@@ -4,12 +4,16 @@ import com.austinlinux.pulsemetronome.wearlink.CantStartReason
 import com.austinlinux.pulsemetronome.wearlink.WatchMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -25,14 +29,37 @@ sealed interface StartResult {
     object Cancelled : StartResult
 }
 
+private const val STOP_REPLY_INTERVAL_MS = 5_000L
+
 /** Start/stop handshake with the watch app over a [WatchTransport]. */
 class WatchLink(
     private val transport: WatchTransport,
     private val ackTimeoutMs: Long = 10_000,
     private val openAppAfterMs: Long = 3_000,
-    private val newSessionId: () -> String = { UUID.randomUUID().toString() }
+    private val newSessionId: () -> String = { UUID.randomUUID().toString() },
+    private val clockMs: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
+    // Sessions in flight or started and not yet stopped; anything else the watch talks about is stale.
     private val nodeBySession = ConcurrentHashMap<String, String>()
+    private val lastStopMs = HashMap<String, Long>()
+
+    /**
+     * Answers Ack/Sample/Status from a session this phone no longer knows with Stop, at most once per 5 s per
+     * session, so a watch that acked after we gave up (or missed our Stop) doesn't keep sensing.
+     */
+    fun startResponder(scope: CoroutineScope): Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        transport.incoming.collect { (from, m) ->
+            if (m !is WatchMessage.Ack && m !is WatchMessage.Sample && m !is WatchMessage.Status) return@collect
+            val sid = m.sessionId
+            if (nodeBySession.containsKey(sid)) return@collect
+            val now = clockMs()
+            val last = lastStopMs[sid]
+            if (last != null && now - last < STOP_REPLY_INTERVAL_MS) return@collect
+            if (lastStopMs.size > 64) lastStopMs.entries.removeAll { now - it.value >= STOP_REPLY_INTERVAL_MS }
+            lastStopMs[sid] = now
+            transport.send(from, WatchMessage.Stop(sid))
+        }
+    }
 
     /** Ready with the preferred watch node if one has the app installed. */
     suspend fun availability(): WatchAvailability =
@@ -80,8 +107,10 @@ class WatchLink(
         transport.send(node.id, WatchMessage.Start(sid))
         // No Ack soon: the watch app may not be running, so ask the OS to open it, then send Start once more.
         withTimeoutOrNull(openAppAfterMs) { ack.await() } ?: run {
-            transport.openWatchApp(node.id)
-            transport.send(node.id, WatchMessage.Start(sid))
+            if (!ack.isCompleted) transport.openWatchApp(node.id)
+            // The Ack may have landed while the open request was suspended; yield lets the collector see it.
+            yield()
+            if (!ack.isCompleted) transport.send(node.id, WatchMessage.Start(sid))
             ack.await()
         }
     }
