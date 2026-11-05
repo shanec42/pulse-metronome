@@ -6,7 +6,10 @@ import com.austinlinux.pulsemetronome.wear.log.WatchRunLog
 import com.austinlinux.pulsemetronome.wearlink.WearPaths
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Sends finished run logs to the phone over a ChannelClient channel, marking each sent only after the transfer. */
 class LogSender(context: Context, private val runLog: WatchRunLog) {
@@ -46,13 +49,19 @@ class LogSender(context: Context, private val runLog: WatchRunLog) {
         var delivered = false
         for (id in nodeIds) {
             try {
-                val channel = channelClient.openChannel(id, path).await()
-                try {
-                    channelClient.getOutputStream(channel).await().use { out -> f.inputStream().use { it.copyTo(out) } }
-                    delivered = true
-                } finally {
-                    runCatching { channelClient.close(channel).await() }
+                // A hung openChannel/getOutputStream must not hold the in-flight flag and starve every later log.
+                val ok = withTimeoutOrNull(NODE_TIMEOUT_MS) {
+                    val channel = channelClient.openChannel(id, path).await()
+                    try {
+                        channelClient.getOutputStream(channel).await().use { out -> f.inputStream().use { it.copyTo(out) } }
+                        true
+                    } finally {
+                        withContext(NonCancellable) {
+                            withTimeoutOrNull(5_000) { runCatching { channelClient.close(channel).await() } }
+                        }
+                    }
                 }
+                if (ok == null) Log.w(TAG, "log channel to $id timed out") else delivered = true
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -65,5 +74,6 @@ class LogSender(context: Context, private val runLog: WatchRunLog) {
     private companion object {
         val inFlight = java.util.concurrent.atomic.AtomicBoolean(false)
         const val TAG = "LogSender"
+        const val NODE_TIMEOUT_MS = 15_000L
     }
 }

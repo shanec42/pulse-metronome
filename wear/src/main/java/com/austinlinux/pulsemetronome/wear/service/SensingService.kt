@@ -61,6 +61,7 @@ class SensingService : Service() {
     private var outboxJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var lastStartId = 0
+    private var lastNotificationText: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -118,7 +119,10 @@ class SensingService : Service() {
             is WatchMessage.Stop -> {
                 runLog?.event("STOP", "from phone session=${message.sessionId}")
                 machine.onStop(message.sessionId)
-                if (machine.ui.value == WatchUiState.Ready) endService()
+                if (machine.ui.value == WatchUiState.Ready) {
+                    endService()
+                    return // endService() already cleared the session; skip the fall-through end below
+                }
             }
             is WatchMessage.Heartbeat -> {
                 machine.onHeartbeat(message.sessionId)
@@ -259,12 +263,16 @@ class SensingService : Service() {
     }
 
     private fun updateNotification(state: WatchUiState) {
+        // Samples arrive about once a second; rebuilding the notification and Ongoing Activity each time costs battery.
+        val text = statusText(state)
+        if (text == lastNotificationText) return
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(state))
     }
 
     private fun buildNotification(state: WatchUiState): Notification {
         val text = statusText(state)
-        val touch = PendingIntent.getActivity(this, 0, Intent(this, WatchActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        lastNotificationText = text
+        val touch =PendingIntent.getActivity(this, 0, Intent(this, WatchActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Pulse Metronome")
