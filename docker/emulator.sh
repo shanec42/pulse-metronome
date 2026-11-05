@@ -39,7 +39,7 @@ case "${1:-help}" in
     watch|watch36|phone|phone13)
         window=()
         [ "${HEADLESS:-0}" = 1 ] && window=(-no-window)
-        exec "$sdk/emulator/emulator" -avd "pm-$1" -gpu swiftshader_indirect -no-audio -no-boot-anim -no-metrics \
+        exec "$sdk/emulator/emulator" -avd "pm-$1" -gpu "${EMU_GPU:-swiftshader_indirect}" -no-audio -no-boot-anim -no-metrics \
             ${window[@]+"${window[@]}"}
         ;;
     *)

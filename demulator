@@ -4,4 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 export KVM_GID="$(stat -c %g /dev/kvm)"
-exec docker compose run --rm -e HEADLESS="${HEADLESS:-0}" emulator bash docker/emulator.sh "$@"
+# EMU_GPU picks the emulator's renderer (default swiftshader_indirect); some newer images draw a
+# blank window with it, so e.g. EMU_GPU=guest is worth trying.
+exec docker compose run --rm -e HEADLESS="${HEADLESS:-0}" -e EMU_GPU="${EMU_GPU:-}" emulator bash docker/emulator.sh "$@"
