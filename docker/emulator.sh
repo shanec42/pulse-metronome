@@ -40,7 +40,7 @@ case "${1:-help}" in
         window=()
         [ "${HEADLESS:-0}" = 1 ] && window=(-no-window)
         exec "$sdk/emulator/emulator" -avd "pm-$1" -gpu "${EMU_GPU:-swiftshader_indirect}" -no-audio -no-boot-anim -no-metrics \
-            ${window[@]+"${window[@]}"}
+            ${window[@]+"${window[@]}"} ${EMU_ARGS:-}
         ;;
     *)
         echo "usage: ./demulator install | watch | watch36 | phone | phone13   (HEADLESS=1 for no window)" >&2
