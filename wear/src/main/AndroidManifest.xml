@@ -16,6 +16,22 @@
         android:allowBackup="false">
         <meta-data android:name="com.google.android.wearable.standalone" android:value="false" />
 
+        <activity android:name=".ui.WatchActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.PulseWatch">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pulsemetronome" android:host="start" />
+            </intent-filter>
+        </activity>
+
         <service android:name=".service.PhoneMessageListener" android:exported="true">
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />

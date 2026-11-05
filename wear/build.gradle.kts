@@ -2,6 +2,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // Release signing comes from an untracked keystore.properties (storeFile, storePassword, keyAlias,
@@ -79,7 +80,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { buildConfig = true }
+    buildFeatures {
+        buildConfig = true
+        compose = true
+    }
 }
 
 kotlin {
@@ -94,6 +98,12 @@ dependencies {
     // Health Services' ExerciseClient returns ListenableFuture, which is not on the runtime classpath without Guava.
     implementation("com.google.guava:guava:33.4.8-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation(platform("androidx.compose:compose-bom:2025.12.01"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.wear.compose:compose-foundation:1.5.6")
+    implementation("androidx.wear:wear:1.4.0")
+    implementation("androidx.activity:activity-compose:1.12.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     testImplementation("junit:junit:4.13.2")

@@ -25,6 +25,7 @@ import com.austinlinux.pulsemetronome.wear.sensing.HealthServicesHeartRateSensor
 import com.austinlinux.pulsemetronome.wear.sensing.HeartRateSensor
 import com.austinlinux.pulsemetronome.wear.session.WatchSessionMachine
 import com.austinlinux.pulsemetronome.wear.session.WatchUiState
+import com.austinlinux.pulsemetronome.wear.ui.WatchActivity
 import com.austinlinux.pulsemetronome.wearlink.WatchMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
@@ -63,7 +66,10 @@ class SensingService : Service() {
             NotificationChannel(CHANNEL_ID, "Heart rate sensing", NotificationManager.IMPORTANCE_LOW),
         )
         scope.launch {
-            machine.ui.collect { state -> if (foregroundStarted) updateNotification(state) }
+            machine.ui.collect { state ->
+                _uiState.value = state
+                if (foregroundStarted) updateNotification(state)
+            }
         }
     }
 
@@ -215,9 +221,7 @@ class SensingService : Service() {
 
     private fun buildNotification(state: WatchUiState): Notification {
         val text = statusText(state)
-        val launch = packageManager.getLaunchIntentForPackage(packageName)
-            ?: Intent(Intent.ACTION_MAIN).setPackage(packageName)
-        val touch = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val touch = PendingIntent.getActivity(this, 0, Intent(this, WatchActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Pulse Metronome")
@@ -236,6 +240,7 @@ class SensingService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        _uiState.value = WatchUiState.Ready
         tickJob?.cancel()
         sensor.stop()
         releaseWakeLock()
@@ -267,6 +272,11 @@ class SensingService : Service() {
             val permission = if (Build.VERSION.SDK_INT >= 36) READ_HEART_RATE else Manifest.permission.BODY_SENSORS
             return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
         }
+
+        private val _uiState = MutableStateFlow<WatchUiState>(WatchUiState.Ready)
+
+        /** The running session's UI state for the activity; back to Ready when the service ends. */
+        val uiState: StateFlow<WatchUiState> = _uiState
 
         /** True while an instance exists; lets the listener skip Stop and Heartbeat when nothing is running. */
         @Volatile var isRunning = false
