@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Android emulators in Docker: ./demulator install | watch | phone | phone13 (HEADLESS=1 for no window).
+# Android emulators in Docker: ./demulator install | watch | watch36 | phone | phone13 (HEADLESS=1 for no window).
 # Run watch and phone in separate terminals; both appear in the host's `adb devices`.
 set -euo pipefail
 cd "$(dirname "$0")"
