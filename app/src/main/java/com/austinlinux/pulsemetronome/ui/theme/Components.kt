@@ -6,6 +6,8 @@ import com.austinlinux.pulsemetronome.ble.CONNECT_RETRY_AFTER_MS
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.animateFloat
@@ -399,6 +401,59 @@ fun MessageBar(text: String, modifier: Modifier = Modifier) {
             .clip(RoundedCornerShape(16.dp)).background(PmColors.Snackbar)
             .padding(horizontal = 18.dp, vertical = 14.dp)
     ) { Text(text, color = PmColors.Text, style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 14.sp)) }
+}
+
+/** Message bar with an optional brass text action (e.g. "Retry"); [action] is null for a plain message. */
+@Composable
+fun ActionMessageBar(text: String, action: String?, onAction: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = MESSAGE_BAR_GAP)
+            .clip(RoundedCornerShape(16.dp)).background(PmColors.Snackbar)
+            .heightIn(min = 52.dp).padding(start = 18.dp, end = if (action != null) 6.dp else 18.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(text, color = PmColors.Text, modifier = Modifier.weight(1f).padding(vertical = 10.dp), style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp))
+        if (action != null) {
+            Box(Modifier.height(44.dp).clickable(role = Role.Button, onClick = onAction).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                Text(action, color = PmColors.Brass, style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.SemiBold, fontSize = 14.sp))
+            }
+        }
+    }
+}
+
+/** Equal-width outlined pill; while [loading] a brass fill sweeps in from the left, then wipes off to the right, looping like Scan now. */
+@Composable
+fun OutlinePill(label: String, modifier: Modifier = Modifier, loading: Boolean = false, onClick: () -> Unit) {
+    val phase by rememberInfiniteTransition(label = "pillFill").animateFloat(
+        initialValue = 0f, targetValue = 2f,
+        animationSpec = infiniteRepeatable(
+            keyframes { durationMillis = 1800; 0f at 0 using FastOutSlowInEasing; 1f at 900 using FastOutSlowInEasing; 2f at 1800 }
+        ), label = "pillFillPhase"
+    )
+    val shape = RoundedCornerShape(22.dp)
+    Box(
+        modifier.height(44.dp).clip(shape).border(1.dp, PmColors.Outline, shape)
+            .clickable(enabled = !loading, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = PmColors.Text, style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 14.sp))
+        if (loading) {
+            Box(
+                Modifier.fillMaxSize()
+                    .drawWithContent {
+                        val left = (phase - 1f).coerceAtLeast(0f)
+                        val right = phase.coerceAtMost(1f)
+                        clipRect(left = size.width * left, right = size.width * right) { this@drawWithContent.drawContent() }
+                    }
+                    .background(PmColors.Brass)
+                    .clearAndSetSemantics {},
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = PmColors.Background, style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.SemiBold, fontSize = 14.sp))
+            }
+        }
+    }
 }
 
 /** Bar shown while an end-of-session alarm rings on a screen without its own Dismiss (Setup): "Alarm ringing" + Dismiss. */

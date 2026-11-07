@@ -1,0 +1,6 @@
+<resources>
+    <!-- Dark window so nothing flashes white before Compose draws. -->
+    <style name="Theme.PulseWatch" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowBackground">@color/pm_background</item>
+    </style>
+</resources>

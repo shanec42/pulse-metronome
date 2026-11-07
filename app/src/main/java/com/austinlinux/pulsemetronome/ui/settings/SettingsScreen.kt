@@ -43,7 +43,10 @@ import androidx.compose.runtime.produceState
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.austinlinux.pulsemetronome.debug.CAPTURE_SHARE_DIR
+import com.austinlinux.pulsemetronome.debug.CaptureUploaders
 import com.austinlinux.pulsemetronome.debug.DebugCapture
+import com.austinlinux.pulsemetronome.debug.UploadResult
+import com.austinlinux.pulsemetronome.debug.uploadMessage
 import com.austinlinux.pulsemetronome.debug.captureSummary
 import java.io.File
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,7 +73,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.austinlinux.pulsemetronome.alarm.AlarmType
 import com.austinlinux.pulsemetronome.ui.theme.ConfirmDialog
+import com.austinlinux.pulsemetronome.ui.theme.ActionMessageBar
 import com.austinlinux.pulsemetronome.ui.theme.MessageBar
+import com.austinlinux.pulsemetronome.ui.theme.OutlinePill
 import com.austinlinux.pulsemetronome.ui.theme.PmSwitch
 import com.austinlinux.pulsemetronome.ui.theme.MonoLabel
 import com.austinlinux.pulsemetronome.ui.theme.NumberStepper
@@ -100,11 +105,34 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit = {}) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showDeleted by remember { mutableStateOf(false) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val uploader = remember { CaptureUploaders.create(context) }
+    var uploading by remember { mutableStateOf(false) }
+    var uploadResult by remember { mutableStateOf<UploadResult?>(null) }
+    LaunchedEffect(uploadResult) {
+        // Failed stays until Retry is tapped; the other results fade like the other message bars.
+        if (uploadResult != null && uploadResult !is UploadResult.Failed) { delay(4000); uploadResult = null }
+    }
+    val startUpload: () -> Unit = {
+        if (uploader != null && !uploading) {
+            uploading = true
+            uploadResult = null
+            scope.launch {
+                val zip = withContext(Dispatchers.IO) { runCatching { zipCaptureForSharing(context) } }
+                val result = when {
+                    zip.isFailure -> UploadResult.Failed("zip")
+                    zip.getOrNull() == null -> { exportMessage = "Nothing to upload yet"; null }
+                    else -> uploader.upload(zip.getOrNull()!!)
+                }
+                uploading = false
+                uploadResult = result
+            }
+        }
+    }
     LaunchedEffect(exportMessage) {
         if (exportMessage != null) { delay(1800); exportMessage = null }
     }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult  // cancelled
         scope.launch {
@@ -288,42 +316,36 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit = {}) {
                 }
                 RowDivider()
                 Row(
-                    Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp)
-                        .clickable(role = Role.Button) {
-                            scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                                        val dir = File(context.cacheDir, CAPTURE_SHARE_DIR).also { it.mkdirs() }
-                                        val dest = File(dir, "pulse-metronome-capture-$day.zip")
-                                        if (DebugCapture.zipTo(dest)) {
-                                            FileProvider.getUriForFile(context, context.packageName + ".debugcapture", dest)
-                                        } else null
-                                    }
-                                }
-                                val uri = result.getOrNull()
-                                if (result.isFailure) {
-                                    exportMessage = "Couldn't share capture"
-                                } else if (uri == null) {
-                                    exportMessage = "Nothing to share yet"
-                                } else {
-                                    runCatching {
-                                        context.startActivity(
-                                            Intent.createChooser(
-                                                Intent(Intent.ACTION_SEND).setType("application/zip")
-                                                    .putExtra(Intent.EXTRA_STREAM, uri)
-                                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                                                "Share capture"
-                                            )
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinePill("Share", Modifier.weight(1f), onClick = {
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching { zipCaptureForSharing(context)?.let { FileProvider.getUriForFile(context, context.packageName + ".debugcapture", it) } }
+                            }
+                            val uri = result.getOrNull()
+                            if (result.isFailure) {
+                                exportMessage = "Couldn't share capture"
+                            } else if (uri == null) {
+                                exportMessage = "Nothing to share yet"
+                            } else {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent.createChooser(
+                                            Intent(Intent.ACTION_SEND).setType("application/zip")
+                                                .putExtra(Intent.EXTRA_STREAM, uri)
+                                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                            "Share capture"
                                         )
-                                    }.onFailure { exportMessage = "Couldn't share capture" }
-                                }
+                                    )
+                                }.onFailure { exportMessage = "Couldn't share capture" }
                             }
                         }
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Share capture", color = PmColors.Text, style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 14.sp))
+                    })
+                    if (uploader != null) {
+                        OutlinePill("Uploading…".takeIf { uploading } ?: "Upload", Modifier.weight(1f), loading = uploading, onClick = startUpload)
+                    }
                 }
                 RowDivider()
                 Row(
@@ -342,7 +364,18 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit = {}) {
     }
     if (showDeleted) MessageBar("All sessions deleted", Modifier.align(Alignment.BottomCenter))
     exportMessage?.let { MessageBar(it, Modifier.align(Alignment.BottomCenter)) }
+    uploadResult?.let { r ->
+        ActionMessageBar(uploadMessage(r), if (r is UploadResult.Failed) "Retry" else null, startUpload, Modifier.align(Alignment.BottomCenter))
     }
+    }
+}
+
+/** Zips the current capture into the cache share directory; null when there is nothing to zip. Blocking: call off the main thread. */
+private fun zipCaptureForSharing(context: android.content.Context): File? {
+    val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    val dir = File(context.cacheDir, CAPTURE_SHARE_DIR).also { it.mkdirs() }
+    val dest = File(dir, "pulse-metronome-capture-$day.zip")
+    return if (DebugCapture.zipTo(dest)) dest else null
 }
 
 private fun alarmCopy(type: AlarmType): Pair<String, String> = when (type) {

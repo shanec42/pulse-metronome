@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Android emulators in Docker: ./demulator install | watch | watch36 | phone | phone13 (HEADLESS=1 for no window).
+# Run watch and phone in separate terminals; both appear in the host's `adb devices`.
+set -euo pipefail
+cd "$(dirname "$0")"
+export KVM_GID="$(stat -c %g /dev/kvm)"
+# EMU_GPU picks the emulator's renderer (default swiftshader_indirect); some newer images draw a
+# blank window with it, so e.g. EMU_GPU=guest is worth trying.
+# EMU_ARGS adds raw emulator flags, e.g. EMU_ARGS=-no-snapshot-load for a cold boot that skips a
+# saved (possibly stuck) quick-boot snapshot.
+exec docker compose run --rm -e HEADLESS="${HEADLESS:-0}" -e EMU_GPU="${EMU_GPU:-}" -e EMU_ARGS="${EMU_ARGS:-}" emulator bash docker/emulator.sh "$@"

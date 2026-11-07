@@ -15,6 +15,14 @@ private val CAPTURE_NAME = Regex("""capture-(\d{4}-\d{2}-\d{2})\.log""")
 /** True for the names the capture writer creates (and so the only files pruning may touch). */
 fun isCaptureFileName(name: String): Boolean = CAPTURE_NAME.matches(name)
 
+private val WATCH_LOG_NAME = Regex("""watch-[A-Za-z0-9_-]+\.log""")
+
+/** True for stored watch run logs. */
+fun isWatchLogFileName(name: String): Boolean = WATCH_LOG_NAME.matches(name)
+
+/** File name for a watch run log; the id comes off the wire, so anything but [A-Za-z0-9_-] becomes '_'. */
+fun watchLogFileName(sessionId: String): String = "watch-" + sessionId.replace(Regex("[^A-Za-z0-9_-]"), "_").ifEmpty { "unknown" } + ".log"
+
 /** The day file a line written at [timeMs] belongs in. */
 fun captureFileName(timeMs: Long, tz: TimeZone = TimeZone.getDefault()): String =
     "capture-" + SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = tz }.format(Date(timeMs)) + ".log"

@@ -19,6 +19,11 @@ import kotlinx.coroutines.flow.map
 import com.austinlinux.pulsemetronome.ble.BleModule
 import com.austinlinux.pulsemetronome.ble.SharedPreferencesDeviceAddressStore
 import com.austinlinux.pulsemetronome.data.AppDatabase
+import com.austinlinux.pulsemetronome.source.PulseSource
+import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.watch.DataLayerWatchTransport
+import com.austinlinux.pulsemetronome.source.watch.WatchLink
+import com.austinlinux.pulsemetronome.source.watch.WatchPulseSource
 import com.austinlinux.pulsemetronome.data.IncompleteSessionRecovery
 import com.austinlinux.pulsemetronome.ui.history.cleanUpPendingDeletes
 import com.austinlinux.pulsemetronome.ui.settings.SettingsRepository
@@ -34,6 +39,22 @@ class PulseMetronomeApp : Application() {
     // or SessionForegroundService reusing it on session start).
     val bleModule: BleModule by lazy {
         BleModule(this, SharedPreferencesDeviceAddressStore(this))
+    }
+
+    val watchTransport: DataLayerWatchTransport by lazy { DataLayerWatchTransport(this) }
+    val watchLink: WatchLink by lazy { WatchLink(watchTransport) }
+    val watchPulseSource: WatchPulseSource by lazy {
+        WatchPulseSource(watchLink, watchTransport, appScope, nowMs = { System.currentTimeMillis() })
+    }
+
+    /** The session's pulse provider for [kind]. */
+    fun pulseSourceFor(kind: PulseSourceKind): PulseSource = when (kind) {
+        PulseSourceKind.OXIMETER -> bleModule
+        PulseSourceKind.WATCH -> watchPulseSource
+    }
+
+    val sourceChoiceStore: com.austinlinux.pulsemetronome.source.SourceChoiceStore by lazy {
+        com.austinlinux.pulsemetronome.source.sharedPreferencesSourceChoiceStore(this)
     }
 
     val database: AppDatabase by lazy { AppDatabase.instance(this) }
@@ -66,6 +87,12 @@ class PulseMetronomeApp : Application() {
     override fun onCreate() {
         super.onCreate()
         startDebugCapture()
+        // App-scoped Data Layer listeners (messages and log channels).
+        watchTransport.start()
+        appScope.launch {
+            watchTransport.incomingLogs.collect { (sessionId, bytes) -> DebugCapture.addWatchLog(sessionId, bytes) }
+        }
+        watchLink.startResponder(appScope)
         // Must run before any session UI is shown, so a mid-session process death from a
         // PRIOR launch is reflected in History as INCOMPLETE rather than silently staying
         // "in progress" forever (Task 17).

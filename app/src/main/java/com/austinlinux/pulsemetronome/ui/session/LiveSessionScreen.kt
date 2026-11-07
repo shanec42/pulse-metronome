@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.austinlinux.pulsemetronome.engine.SessionState
+import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import com.austinlinux.pulsemetronome.engine.syncWindowMin
 import com.austinlinux.pulsemetronome.service.SessionForegroundService
 import com.austinlinux.pulsemetronome.service.SessionStateBus
@@ -181,7 +182,11 @@ fun LiveSessionScreen(viewModel: LiveSessionViewModel, onSessionEnded: () -> Uni
             // Only reachable under StartMode.WHEN_PULSE_DETECTED (NOW resolves synchronously):
             // distinguishes BLE connecting from the 3-reading verification so the screen
             // never looks hung.
+            val watch = viewModel.sourceKind == PulseSourceKind.WATCH
+            // A watch is "connected" once it has sent anything and drops back after 15 s of silence, so a watch
+            // that acked but then went quiet shows the oximeter's "Connecting…" instead of waiting forever.
             val label = if (!connected) "Connecting…"
+            else if (watch && current.verificationStreakCount == 0) "Waiting for steady pulse"
             else if (current.verificationStreakCount > 0) "Verifying pulse (${current.verificationStreakCount}/3)"
             else "Waiting for pulse…"
             Column(
@@ -208,7 +213,13 @@ fun LiveSessionScreen(viewModel: LiveSessionViewModel, onSessionEnded: () -> Uni
                     color = PmColors.Muted, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.width(260.dp)
                 )
-                if (!connected) {
+                if (watch) {
+                    val watchName by viewModel.deviceName.collectAsState()
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(PmColors.Green))
+                        MonoLabel("Pulse from ${watchName ?: "watch"}", tracking = 0.08f)
+                    }
+                } else if (!connected) {
                     ScanFillPill(scanningSince = scanSince, connectingSince = connectingSince, onClick = viewModel::onScanNow, modifier = Modifier.padding(top = 6.dp))
                 }
             }

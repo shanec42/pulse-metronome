@@ -23,6 +23,13 @@ object PermissionsManager {
             requiredBlePermissions(sdkInt)
         }
 
+    /** What Setup's first-launch request should ask for: the Watch source skips Bluetooth, and already-granted entries are dropped (empty means no request). */
+    fun initialRequest(required: List<String>, ble: List<String>, watchSource: Boolean, isGranted: (String) -> Boolean): List<String> =
+        required.filter { !(watchSource && it in ble) && !isGranted(it) }
+
+    /** Bluetooth denial bookkeeping applies only to a request that actually asked for a Bluetooth permission. */
+    fun countsAsBleDenial(requested: List<String>, ble: List<String>): Boolean = requested.any { it in ble }
+
     // Real-device-only checks, implemented alongside this pure function but not unit-tested:
     // notification permission state (API 33+ via ContextCompat.checkSelfPermission), location
     // services enabled (API<=30 via LocationManager.isLocationEnabled()), Bluetooth adapter

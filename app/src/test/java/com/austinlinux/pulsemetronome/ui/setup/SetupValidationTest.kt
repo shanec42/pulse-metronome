@@ -2,6 +2,7 @@ package com.austinlinux.pulsemetronome.ui.setup
 
 import com.austinlinux.pulsemetronome.engine.DescentPattern
 import com.austinlinux.pulsemetronome.engine.StartMode
+import com.austinlinux.pulsemetronome.source.PulseSourceKind.WATCH
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -166,5 +167,43 @@ class SetupValidationTest {
         assertEquals(RampBump(1, 30), rampBump(ramp = 3, total = 30, delta = -5))
         assertEquals(RampBump(20, null), rampBump(ramp = 15, total = null, delta = 5))
         assertEquals(RampBump(1, 30), rampBump(ramp = null, total = 30, delta = 0))
+    }
+
+    @Test
+    fun `watchSource alwaysWaitsForPulse`() {
+        assertEquals(StartMode.WHEN_PULSE_DETECTED, resolveStartMode(false, false, false, WATCH))
+    }
+
+    @Test
+    fun `watchSource monitorStillWaits`() {
+        assertEquals(StartMode.WHEN_PULSE_DETECTED, resolveStartMode(false, false, true, WATCH))
+    }
+
+    @Test
+    fun `watchSource display`() {
+        val d = setupDisplay(waitForPulse = false, meterConnected = false, source = WATCH)
+        assertEquals("Start when pulse is steady", d.startLabel)
+        assertFalse(d.showWaitForPulse)
+        assertFalse(d.showStartingBpm)
+        assertEquals("Start monitoring", setupDisplay(false, false, monitor = true, source = WATCH).startLabel)
+    }
+
+    @Test
+    fun `watchSource doesNotNeedBlePermission`() {
+        assertTrue(startEnabled(true, false, false, false, false, null, 60, source = WATCH))
+    }
+
+    @Test
+    fun `watchSource monitor startEnabledWithoutBle`() {
+        assertTrue(startEnabled(true, false, false, false, false, null, 60, monitor = true, totalDurationMin = 30, source = WATCH))
+        assertFalse(startEnabled(true, false, false, false, false, null, 60, monitor = true, totalDurationMin = 0, source = WATCH))
+    }
+
+    @Test
+    fun `oximeterDefaults unchanged`() {
+        assertEquals(StartMode.NO_PULSE, resolveStartMode(false, false))
+        assertEquals(SetupDisplay(true, "Start without meter"), setupDisplay(false, false))
+        assertFalse(startEnabled(true, true, false, false, false, null, 60))
+        assertFalse(startEnabled(true, false, false, false, false, null, 60, monitor = true, totalDurationMin = 30))
     }
 }

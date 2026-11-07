@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      target: sdk
     volumes:
       - .:/workspace
     working_dir: /workspace
@@ -22,4 +23,66 @@ services:
     # `network_mode: host` isn't supported the same way and connectedAndroidTest would need a
     # different mechanism (decided at implementation time if that ever applies - this dev
     # machine is Linux, per the session's environment context, so it's not addressed further).
+    network_mode: host
+
+  # Android emulators (Wear OS watch + phone) for ./demulator. KVM is passed through; the SDK,
+  # system images and AVDs live in ./.android-emulator (git-ignored). Windows open on the host's
+  # X display; host networking lets the host's adb server see the emulators directly.
+  emulator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: emulator
+    volumes:
+      - .:/workspace
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority:ro
+      # The emulator pre-authorizes $HOME/.android/adbkey.pub, so share the host adb server's
+      # public key (public half only) and emulators never show up as "unauthorized".
+      - ${HOME}/.android/adbkey.pub:/workspace/.android-emulator/home/.android/adbkey.pub:ro
+    working_dir: /workspace
+    environment:
+      - HOME=/workspace/.android-emulator/home
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
+    devices:
+      - /dev/kvm
+    # The host grants /dev/kvm through an ACL, which Docker doesn't copy into the container's
+    # device node (root:kvm 0660), so join the host's kvm group by id (./demulator sets KVM_GID).
+    group_add:
+      - "${KVM_GID:-993}"
+    user: "${UID:-1000}:${GID:-1000}"
+    network_mode: host
+
+  # Android Studio for ./dstudio, mainly for its Wear Health Services sensor panel (the only way
+  # to set heart rate on a Wear OS 4+ emulator). Studio and its settings live in ./.android-studio;
+  # it shares the emulator SDK and AVDs. Don't run an AVD here and in ./demulator at the same time.
+  studio:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: studio
+    volumes:
+      - .:/workspace
+      # Mounted at the android service's SDK path, so the sdk.dir Studio writes to local.properties
+      # still resolves inside ./dgradlew's container.
+      - ./.android-emulator/sdk:/opt/android-sdk
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority:ro
+      - ${HOME}/.android/adbkey.pub:/workspace/.android-emulator/home/.android/adbkey.pub:ro
+    working_dir: /workspace
+    environment:
+      - HOME=/workspace/.android-studio/home
+      - ANDROID_HOME=/opt/android-sdk
+      - ANDROID_SDK_ROOT=/opt/android-sdk
+      - ANDROID_USER_HOME=/workspace/.android-emulator/home/.android
+      - ANDROID_AVD_HOME=/workspace/.android-emulator/avd
+      - GRADLE_USER_HOME=/workspace/.gradle-container-home
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
+    devices:
+      - /dev/kvm
+    group_add:
+      - "${KVM_GID:-993}"
+    user: "${UID:-1000}:${GID:-1000}"
     network_mode: host

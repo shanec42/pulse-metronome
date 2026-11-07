@@ -14,11 +14,11 @@ import android.bluetooth.le.ScanSettings
 import android.os.ParcelUuid
 import android.os.PowerManager
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.austinlinux.pulsemetronome.BuildConfig
 import com.austinlinux.pulsemetronome.ble.protocol.FrameDecoder
 import com.austinlinux.pulsemetronome.ble.protocol.GattOp
 import com.austinlinux.pulsemetronome.ble.protocol.GattOpQueue
@@ -29,6 +29,7 @@ import com.austinlinux.pulsemetronome.ble.protocol.ProtocolRegistry
 import com.austinlinux.pulsemetronome.ble.protocol.PulseReading
 import com.austinlinux.pulsemetronome.ble.protocol.startupOps
 import com.austinlinux.pulsemetronome.ble.protocol.toPulseReading
+import com.austinlinux.pulsemetronome.source.PulseSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -91,10 +92,16 @@ data class TimedPulse(val bpm: Int, val atElapsedMs: Long)
 class BleModule(
     private val context: Context,
     private val addressStore: DeviceAddressStore
-) {
+) : PulseSource {
     private val _latestValidPulse = MutableStateFlow<TimedPulse?>(null)
     /** Latest valid reading and when it arrived; cleared on disconnect or no-signal. */
-    val latestValidPulse: StateFlow<TimedPulse?> = _latestValidPulse
+    override val latestValidPulse: StateFlow<TimedPulse?> = _latestValidPulse
+
+    override fun beginSession() = scanAndConnect()
+
+    override fun retryIfIdle() = retryConnectIfIdle()
+
+    override fun endSession() = stopReconnecting()
 
     private fun publishReading(reading: PulseReading) {
         _readings.tryEmit(reading)
@@ -105,7 +112,7 @@ class BleModule(
         }
     }
 
-    private val debuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    private val debuggable = BuildConfig.DEBUG_TOOLS
 
     // Threading: ops, protocol, keep-alive, op timers and closing are only touched on
     // mainHandler. GATT callbacks arrive on binder threads, so they post to mainHandler before
@@ -131,11 +138,11 @@ class BleModule(
 
     private val _batteryPercent = MutableStateFlow<Int?>(null)
     /** Last battery level the connected oximeter reported; null when unknown or disconnected. */
-    val batteryPercent: StateFlow<Int?> = _batteryPercent
+    override val batteryPercent: StateFlow<Int?> = _batteryPercent
 
     private val _connectedDeviceName = MutableStateFlow<String?>(null)
     /** Advertised name of the connected oximeter; null when disconnected. */
-    val connectedDeviceName: StateFlow<String?> = _connectedDeviceName
+    override val connectedDeviceName: StateFlow<String?> = _connectedDeviceName
     // Every connect path assigns this field, so its setter is the one place that tracks how
     // long the current connect attempt has been pending (cleared again once connected).
     // @Volatile: read and written from binder, main and Default threads.
@@ -148,16 +155,16 @@ class BleModule(
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val _readings = MutableSharedFlow<PulseReading>(extraBufferCapacity = 64)
-    val readings: Flow<PulseReading> = _readings
+    override val readings: Flow<PulseReading> = _readings
 
     private val _sensorOffState = MutableSharedFlow<Boolean>(extraBufferCapacity = 8)
-    val sensorOffState: Flow<Boolean> = _sensorOffState
+    override val sensorOffState: Flow<Boolean> = _sensorOffState
 
     private val _scanResults = MutableSharedFlow<ScanOutcome>(extraBufferCapacity = 4)
     val scanResults: Flow<ScanOutcome> = _scanResults
 
     private val _connectionState = MutableStateFlow(false)
-    val connectionState: StateFlow<Boolean> = _connectionState
+    override val connectionState: StateFlow<Boolean> = _connectionState
 
     private val _scanInProgressSince = MutableStateFlow<Long?>(null)
     /** elapsedRealtime() at which the current scan window opened; null when no scan is running. */

@@ -18,7 +18,8 @@ import com.austinlinux.pulsemetronome.alarm.AlarmPlayer
 import com.austinlinux.pulsemetronome.alarm.AlarmType
 import com.austinlinux.pulsemetronome.audio.AudioEngine
 import com.austinlinux.pulsemetronome.audio.loadClickSample
-import com.austinlinux.pulsemetronome.ble.BleModule
+import com.austinlinux.pulsemetronome.source.PulseSource
+import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import com.austinlinux.pulsemetronome.ble.protocol.PulseReading
 import com.austinlinux.pulsemetronome.data.AppDatabase
 import com.austinlinux.pulsemetronome.debug.DebugCapture
@@ -59,6 +60,7 @@ private const val AUTO_RESCAN_INTERVAL_MS = 12_000L  // within the spec's 10-15s
 class SessionForegroundService : Service() {
 
     companion object {
+        private const val EXTRA_SOURCE_KIND = "source_kind"
         private const val EXTRA_TARGET_BPM = "target_bpm"
         private const val EXTRA_TOTAL_DURATION_MIN = "total_duration_min"
         private const val EXTRA_RAMP_DURATION_MIN = "ramp_duration_min"
@@ -80,8 +82,10 @@ class SessionForegroundService : Service() {
             config: SessionConfig,
             alarmType: AlarmType,
             startMode: StartMode,
-            saveToHistory: Boolean
+            saveToHistory: Boolean,
+            sourceKind: PulseSourceKind = PulseSourceKind.OXIMETER
         ): Intent = Intent(context, SessionForegroundService::class.java).apply {
+            putExtra(EXTRA_SOURCE_KIND, sourceKind.name)
             putExtra(EXTRA_TARGET_BPM, config.targetBpm)
             putExtra(EXTRA_TOTAL_DURATION_MIN, config.totalDurationMin)
             putExtra(EXTRA_RAMP_DURATION_MIN, config.rampDurationMin)
@@ -112,7 +116,7 @@ class SessionForegroundService : Service() {
 
     private lateinit var config: SessionConfig
     private lateinit var engine: SessionEngine
-    private lateinit var bleModule: BleModule
+    private lateinit var pulseSource: PulseSource
     private lateinit var audioEngine: AudioEngine
     private lateinit var alarmPlayer: AlarmPlayer
     private lateinit var alarmType: AlarmType
@@ -183,9 +187,13 @@ class SessionForegroundService : Service() {
         // real state is available.
         ensureNotificationChannel()
         val startMode = StartMode.valueOf(intent.getStringExtra(EXTRA_START_MODE) ?: StartMode.NOW.name)
+        val sourceKind = intent.getStringExtra(EXTRA_SOURCE_KIND)
+            ?.let { name -> PulseSourceKind.values().firstOrNull { it.name == name } }
+            ?: PulseSourceKind.OXIMETER
         // NO_PULSE never touches Bluetooth and may run without its permission; claiming the
-        // connectedDevice type without BLUETOOTH_CONNECT throws on Android 14.
-        if (startMode == StartMode.NO_PULSE && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        // connectedDevice type without BLUETOOTH_CONNECT throws on Android 14. The Watch source
+        // doesn't use the phone's Bluetooth either.
+        if ((startMode == StartMode.NO_PULSE || sourceKind == PulseSourceKind.WATCH) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, buildInitialNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
             startForeground(NOTIFICATION_ID, buildInitialNotification())
@@ -210,10 +218,10 @@ class SessionForegroundService : Service() {
 
         db = AppDatabase.instance(applicationContext)  // shared singleton, see Task 10/22
         engine = SessionEngine(config, SystemMonotonicClock())
-        // Reuses the app-scoped BleModule (constructed once in PulseMetronomeApp) - NOT a new
+        // Reuses the app-scoped source (the BleModule for OXIMETER, constructed once in PulseMetronomeApp) - NOT a new
         // instance - so a connection Setup already established isn't torn down and rebuilt
         // when a session starts. See Task 18's Ownership clarification.
-        bleModule = (application as com.austinlinux.pulsemetronome.PulseMetronomeApp).bleModule
+        pulseSource = (application as com.austinlinux.pulsemetronome.PulseMetronomeApp).pulseSourceFor(sourceKind)
         // Decoded once here, not inside the lambda AudioEngine calls per-beat (a real bug
         // found in final review, I2) - re-running MediaExtractor on every click adds
         // decode jitter directly to beat timing and risks an uncaught exception on the
@@ -225,8 +233,8 @@ class SessionForegroundService : Service() {
 
         wireEngineListener()
         // A no-pulse session is for people without a meter: no scanning, and a meter that appears is ignored.
-        if (startMode != StartMode.NO_PULSE) wireBleFlows()
-        wireBleCapture()
+        if (startMode != StartMode.NO_PULSE) wireSourceFlows()
+        wireSourceCapture()
         startTicker()
         if (startMode != StartMode.NO_PULSE) startAutoRescan()
 
@@ -245,10 +253,10 @@ class SessionForegroundService : Service() {
         // onStartCommand runs on the main thread, and SessionEngine must only ever be touched
         // from the single serialized consumer coroutine started by wireEngineListener() above,
         // per the spec's single-dispatcher confinement requirement.
-        if (startMode != StartMode.NO_PULSE) bleModule.scanAndConnect()
+        if (startMode != StartMode.NO_PULSE) pulseSource.beginSession()
         // A previous session's unconsumed end signal must not open its Summary over this session.
         SessionStateBus.clearEndedSessionId()
-        val latest = bleModule.latestValidPulse.value
+        val latest = pulseSource.latestValidPulse.value
         val initialPulse = if (startMode == StartMode.NOW)
             usableInitialPulse(latest?.bpm, latest?.atElapsedMs, SystemClock.elapsedRealtime()) else null
         engineEventChannel.trySend { engine.start(startMode, initialPulse) }
@@ -270,7 +278,7 @@ class SessionForegroundService : Service() {
                 delay(AUTO_RESCAN_INTERVAL_MS)
                 val currentPhase = SessionStateBus.state.value?.phase
                 if (currentPhase != SessionState.Phase.AWAITING_START) break
-                bleModule.retryConnectIfIdle()
+                pulseSource.retryIfIdle()
             }
         }
     }
@@ -285,9 +293,9 @@ class SessionForegroundService : Service() {
         engine.addListener { event -> handleSessionEvent(event) }
     }
 
-    private fun wireBleFlows() {
+    private fun wireSourceFlows() {
         serviceScope.launch {
-            bleModule.readings.collect { reading ->
+            pulseSource.readings.collect { reading ->
                 DebugCapture.event("READING") {
                     when (reading) {
                         is PulseReading.Valid -> "valid pulse=${reading.pulseRate} at=${reading.timestampMs}"
@@ -309,7 +317,7 @@ class SessionForegroundService : Service() {
             }
         }
         serviceScope.launch {
-            bleModule.sensorOffState.collect { isOff ->
+            pulseSource.sensorOffState.collect { isOff ->
                 DebugCapture.event("READING") { "sensorOff=$isOff" }
                 engineEventChannel.trySend { engine.onSensorOffChanged(isOff) }
             }
@@ -317,10 +325,10 @@ class SessionForegroundService : Service() {
     }
 
     /** Session-scoped capture of BLE connection, device name and battery changes (ends with serviceScope). */
-    private fun wireBleCapture() {
-        serviceScope.launch { bleModule.connectionState.collect { b -> DebugCapture.event("BLE") { "connected=$b" } } }
-        serviceScope.launch { bleModule.connectedDeviceName.collect { n -> DebugCapture.event("BLE") { "device=$n" } } }
-        serviceScope.launch { bleModule.batteryPercent.collect { n -> DebugCapture.event("BLE") { "battery=$n%" } } }
+    private fun wireSourceCapture() {
+        serviceScope.launch { pulseSource.connectionState.collect { b -> DebugCapture.event("BLE") { "connected=$b" } } }
+        serviceScope.launch { pulseSource.connectedDeviceName.collect { n -> DebugCapture.event("BLE") { "device=$n" } } }
+        serviceScope.launch { pulseSource.batteryPercent.collect { n -> DebugCapture.event("BLE") { "battery=$n%" } } }
     }
 
     private fun startTicker() {
@@ -416,7 +424,7 @@ class SessionForegroundService : Service() {
                             ))
                         }
                     }
-                    bleModule.stopReconnecting()
+                    pulseSource.endSession()
                     audioEngine.stop()
                     // Published BEFORE the state is cleared so the Live Session screen, on seeing
                     // the state go null, already knows whether there is a Summary to open.

@@ -51,12 +51,49 @@ val releaseSigningConfig = if (!releaseSigningProps.exists()) null else {
     }
 }
 
+// Debug-capture Upload comes from an untracked firebase.properties (projectId, apiKey, storageBucket,
+// appId.debug, appId.watchtest). Without it the build still works and Upload is hidden (UPLOAD_CONFIGURED=false).
+val firebaseProps = Properties().apply {
+    val f = rootProject.file("firebase.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun firebaseProp(key: String) = firebaseProps.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() }
+
+/** Adds the Firebase BuildConfig fields to a debug-tools build type; Upload stays off unless all four values exist. */
+fun com.android.build.api.dsl.ApplicationBuildType.configureFirebaseUpload(appIdKey: String) {
+    val values = listOf("projectId", "apiKey", "storageBucket", appIdKey).map { firebaseProp(it) }
+    fun q(v: String?) = "\"" + (v ?: "") + "\""
+    buildConfigField("boolean", "UPLOAD_CONFIGURED", (values.all { it != null }).toString())
+    buildConfigField("String", "FIREBASE_PROJECT_ID", q(values[0]))
+    buildConfigField("String", "FIREBASE_API_KEY", q(values[1]))
+    buildConfigField("String", "FIREBASE_STORAGE_BUCKET", q(values[2]))
+    buildConfigField("String", "FIREBASE_APP_ID", q(values[3]))
+}
+
 val checkReleaseSigning by tasks.registering {
     val error = releaseSigningError
     doLast { if (error != null) throw GradleException(error) }
 }
 // preReleaseBuild is created by AGP after evaluation, so it has to be matched lazily.
-tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(checkReleaseSigning) }
+tasks.matching { it.name == "preReleaseBuild" || it.name == "preWatchtestBuild" }.configureEach { dependsOn(checkReleaseSigning) }
+
+// Guards the release privacy promise: a library must not sneak INTERNET, READ_LOGS or a FileProvider
+// into the release manifest. Remedy: src/release/AndroidManifest.xml with tools:node="remove".
+val releaseManifestFile = objects.fileProperty()
+val verifyReleaseNoNetwork by tasks.registering {
+    val manifest = releaseManifestFile
+    inputs.file(manifest)
+    doLast {
+        val text = manifest.get().asFile.readText()
+        val forbidden = listOf(
+            "android.permission.INTERNET",
+            "android.permission.READ_LOGS",
+            "androidx.core.content.FileProvider",
+        ).filter { text.contains(it) }
+        if (forbidden.isNotEmpty()) throw GradleException("Release merged manifest contains: ${forbidden.joinToString()}")
+    }
+}
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach { dependsOn(verifyReleaseNoNetwork) }
 
 android {
     namespace = "com.austinlinux.pulsemetronome"
@@ -67,9 +104,11 @@ android {
         applicationId = "com.austinlinux.pulsemetronome"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = rootProject.extra["pmVersionCode"] as Int
+        versionName = rootProject.extra["pmVersionName"] as String
         manifestPlaceholders["appLabel"] = "Pulse Metronome"
+        buildConfigField("boolean", "DEBUG_TOOLS", "false")
+        buildConfigField("boolean", "UPLOAD_CONFIGURED", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -77,6 +116,8 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             manifestPlaceholders["appLabel"] = "Pulse Metronome (dev)"
+            buildConfigField("boolean", "DEBUG_TOOLS", "true")
+            configureFirebaseUpload("appId.debug")
         }
         release {
             isMinifyEnabled = true
@@ -85,15 +126,43 @@ android {
             // Signed only when keystore.properties is complete; never falls back to the debug key.
             if (releaseSigningConfig != null) signingConfig = releaseSigningConfig
         }
+        // Release-like build with a different package, for testing the watch pulse source on real hardware.
+        create("watchtest") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".watchtest"
+            manifestPlaceholders["appLabel"] = "Pulse Metronome (watch test)"
+            matchingFallbacks += "release"
+            buildConfigField("boolean", "DEBUG_TOOLS", "true")
+            configureFirebaseUpload("appId.watchtest")
+            if (releaseSigningConfig != null) signingConfig = releaseSigningConfig
+        }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     testOptions { unitTests.isIncludeAndroidResources = true }
     sourceSets.getByName("main").assets.srcDir(legalAssetsDir.get().asFile)
+    // debug and watchtest share one manifest/res/java tree; a source set has a single manifest, so it lives in debugTools.
+    listOf("debug", "watchtest").forEach { name ->
+        sourceSets.getByName(name).apply {
+            manifest.srcFile("src/debugTools/AndroidManifest.xml")
+            res.srcDirs("src/debugTools/res")
+            java.srcDirs("src/debugTools/java")
+            kotlin.srcDir("src/debugTools/java")
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withName("release")) { variant ->
+        releaseManifestFile.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.MERGED_MANIFEST))
+    }
 }
 
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
@@ -123,6 +192,19 @@ dependencies {
     // would otherwise pin the test APK to the 1.6.3 that navigation-compose brings, and MigrationTest crashes.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    implementation(project(":wearlink"))
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
+    implementation("androidx.wear:wear-remote-interactions:1.1.0")
+
+    // Debug capture Upload only: release never links Firebase (and so never needs INTERNET).
+    val firebaseBom = platform("com.google.firebase:firebase-bom:34.19.0")
+    debugImplementation(firebaseBom)
+    "watchtestImplementation"(firebaseBom)
+    debugImplementation("com.google.firebase:firebase-storage")
+    debugImplementation("com.google.firebase:firebase-auth")
+    "watchtestImplementation"("com.google.firebase:firebase-storage")
+    "watchtestImplementation"("com.google.firebase:firebase-auth")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
