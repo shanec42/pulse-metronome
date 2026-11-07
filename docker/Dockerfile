@@ -28,3 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
         libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Android Studio runtime: libraries for its bundled JetBrains Runtime and embedded browser, plus
+# git for version control. Studio itself is unpacked by docker/studio.sh into the git-ignored
+# .android-studio/ folder, like the emulator downloads.
+FROM emulator AS studio
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git procps fonts-dejavu-core libfreetype6 libxss1 libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 \
+        libcups2 libnspr4 libxshmfence1 \
+    && rm -rf /var/lib/apt/lists/*

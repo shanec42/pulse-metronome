@@ -10,6 +10,8 @@ captures/
 /local.properties
 # Emulator SDK, system images and AVDs for ./demulator (multi-GB, local only)
 /.android-emulator/
+# Android Studio, its settings and caches for ./dstudio (local only)
+/.android-studio/
 
 # Release signing: never commit the upload key or its passwords
 *.jks

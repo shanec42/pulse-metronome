@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Android Studio in Docker: ./dstudio install, then ./dstudio to open this project.
+# Shares ./demulator's SDK and AVDs; don't run the same AVD from both at once.
+set -euo pipefail
+cd "$(dirname "$0")"
+export KVM_GID="$(stat -c %g /dev/kvm)"
+exec docker compose run --rm studio bash docker/studio.sh "$@"
