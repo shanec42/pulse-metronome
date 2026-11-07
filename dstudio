@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 # Android Studio in Docker: ./dstudio install, then ./dstudio to open this project.
 # Shares ./demulator's SDK and AVDs; don't run the same AVD from both at once.
+#
+# First launch (settings persist in .android-studio/home):
+#  1. Setup wizard SDK path: /opt/android-sdk (the emulator SDK, mounted at ./dgradlew's SDK path).
+#  2. Settings > Build, Execution, Deployment > Debugger > "Use existing manually managed server",
+#     port 5037. Otherwise Studio's newer adb takes over port 5037 from the host's adb server, and
+#     USB phones vanish from `adb devices` (the container has no USB access). Fix if it happens:
+#     `adb kill-server; adb start-server` on the host.
+#  3. Start the watch from Device Manager so it opens in Running Devices; the Wear Health
+#     Services panel (heart-rate override for Wear OS 4+) only exists there.
+# The panel sends one reading per Apply, too slow for the phone's steadiness check (readings
+# under 4 s apart); docker/whs-pulse.sh drives the same override from adb at about 1 reading/s.
 set -euo pipefail
 cd "$(dirname "$0")"
 export KVM_GID="$(stat -c %g /dev/kvm)"

@@ -14,6 +14,10 @@ sha256=11ecbf0e6dc0f04a1353f797e45bf239a3ff1a82221539b1b8cdd7eab0d8d8ea
 
 case "${1:-run}" in
     install)
+        # Studio's setup wizard rejects an SDK with no platform, and the project syncs against API 36.
+        sdk=/opt/android-sdk
+        [ -d "$sdk/platforms/android-36" ] || "$sdk/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk" \
+            "platforms;android-36" "build-tools;36.0.0"
         if [ -x "$root/android-studio/bin/studio.sh" ]; then
             echo "Android Studio already installed in .android-studio/android-studio, kept"
             exit 0
