@@ -2,6 +2,8 @@ package com.austinlinux.pulsemetronome.ui.setup
 
 import com.austinlinux.pulsemetronome.engine.DescentPattern
 import com.austinlinux.pulsemetronome.engine.StartMode
+import com.austinlinux.pulsemetronome.source.PulseSourceKind.FITBIT
+import com.austinlinux.pulsemetronome.source.PulseSourceKind.OXIMETER
 import com.austinlinux.pulsemetronome.source.PulseSourceKind.WATCH
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -205,5 +207,32 @@ class SetupValidationTest {
         assertEquals(SetupDisplay(true, "Start without meter"), setupDisplay(false, false))
         assertFalse(startEnabled(true, true, false, false, false, null, 60))
         assertFalse(startEnabled(true, false, false, false, false, null, 60, monitor = true, totalDurationMin = 30))
+    }
+
+    @Test
+    fun startEnabled_fitbit_noBlePermission_connected_allowsNow() {
+        assertTrue(startEnabled(
+            formValid = true, waitForPulse = false, meterConnected = true, bleGranted = false,
+            scanInProgress = false, startingBpm = 70, targetBpm = 60, source = FITBIT
+        ))
+    }
+
+    @Test
+    fun resolveStartMode_fitbit_matchesOximeter() {
+        for (wait in listOf(false, true)) for (connected in listOf(false, true)) {
+            assertEquals(
+                "wait=$wait connected=$connected",
+                resolveStartMode(wait, connected, source = OXIMETER),
+                resolveStartMode(wait, connected, source = FITBIT)
+            )
+        }
+    }
+
+    @Test
+    fun startMode_fitbitSelected_ignoresConnectedOximeter() {
+        val connected = selectedConnected(FITBIT, oximeterConnected = true, fitbitConnected = false)
+        assertFalse(connected)
+        assertEquals(StartMode.NO_PULSE, resolveStartMode(waitForPulse = false, meterConnected = connected, source = FITBIT))
+        assertTrue(selectedConnected(OXIMETER, oximeterConnected = true, fitbitConnected = false))
     }
 }

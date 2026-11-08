@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.austinlinux.pulsemetronome.engine.SessionState
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.needsPhoneBluetooth
 import com.austinlinux.pulsemetronome.engine.syncWindowMin
 import com.austinlinux.pulsemetronome.service.SessionForegroundService
 import com.austinlinux.pulsemetronome.service.SessionStateBus
@@ -213,11 +214,12 @@ fun LiveSessionScreen(viewModel: LiveSessionViewModel, onSessionEnded: () -> Uni
                     color = PmColors.Muted, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.width(260.dp)
                 )
-                if (watch) {
-                    val watchName by viewModel.deviceName.collectAsState()
+                if (!viewModel.sourceKind.needsPhoneBluetooth) {
+                    val sourceName by viewModel.deviceName.collectAsState()
+                    val fallbackName = if (viewModel.sourceKind == PulseSourceKind.FITBIT) "Fitbit" else "watch"
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.size(6.dp).clip(CircleShape).background(PmColors.Green))
-                        MonoLabel("Pulse from ${watchName ?: "watch"}", tracking = 0.08f)
+                        MonoLabel("Pulse from ${sourceName ?: fallbackName}", tracking = 0.08f)
                     }
                 } else if (!connected) {
                     ScanFillPill(scanningSince = scanSince, connectingSince = connectingSince, onClick = viewModel::onScanNow, modifier = Modifier.padding(top = 6.dp))

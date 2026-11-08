@@ -23,9 +23,9 @@ object PermissionsManager {
             requiredBlePermissions(sdkInt)
         }
 
-    /** What Setup's first-launch request should ask for: the Watch source skips Bluetooth, and already-granted entries are dropped (empty means no request). */
-    fun initialRequest(required: List<String>, ble: List<String>, watchSource: Boolean, isGranted: (String) -> Boolean): List<String> =
-        required.filter { !(watchSource && it in ble) && !isGranted(it) }
+    /** What Setup's first-launch request should ask for: a source without the phone's Bluetooth skips it, and already-granted entries are dropped (empty means no request). */
+    fun initialRequest(required: List<String>, ble: List<String>, skipBluetooth: Boolean, isGranted: (String) -> Boolean): List<String> =
+        required.filter { !(skipBluetooth && it in ble) && !isGranted(it) }
 
     /** Bluetooth denial bookkeeping applies only to a request that actually asked for a Bluetooth permission. */
     fun countsAsBleDenial(requested: List<String>, ble: List<String>): Boolean = requested.any { it in ble }

@@ -56,6 +56,9 @@ import com.austinlinux.pulsemetronome.ble.protocol.isBatteryLow
 import com.austinlinux.pulsemetronome.engine.DescentPattern
 import com.austinlinux.pulsemetronome.engine.StartMode
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.fitbit.FitbitPulseSource
+import com.austinlinux.pulsemetronome.source.fitbit.FitbitStatus
+import com.austinlinux.pulsemetronome.source.needsPhoneBluetooth
 import com.austinlinux.pulsemetronome.wearlink.CantStartReason
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.runtime.DisposableEffect
@@ -96,6 +99,7 @@ import com.austinlinux.pulsemetronome.ui.theme.RowTitle
 fun SetupScreen(
     viewModel: SetupViewModel,
     bleModule: BleModule,
+    fitbitPulseSource: FitbitPulseSource,
     startingBpm: Int?,
     onStartingBpmChanged: (Int?) -> Unit,
     maxOffset: Int,
@@ -118,12 +122,21 @@ fun SetupScreen(
     val context = LocalContext.current
     val source by viewModel.source.collectAsState()
     val watch = source == PulseSourceKind.WATCH
+    val fitbitConnected by fitbitPulseSource.connectionState.collectAsState()
+    val fitbitDeviceName by fitbitPulseSource.connectedDeviceName.collectAsState()
+    val fitbitStatus by fitbitPulseSource.status.collectAsState()
+    // The selected source's link only: a still-connected oximeter must not make a Fitbit start look connected.
+    val selectedConnected = selectedConnected(source, connectionState, fitbitConnected)
+    val selectedDeviceName = if (source == PulseSourceKind.FITBIT) fitbitDeviceName else deviceName
 
     // The watch can be paired or installed while the app is in the background, so look again on return.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_RESUME) viewModel.refreshWatch()
+            if (e == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshWatch()
+                viewModel.onSetupShown()
+            }
             // A start still pending when the app is backgrounded would otherwise begin a session unseen.
             if (e == Lifecycle.Event.ON_STOP) viewModel.onSetupLeft()
         }
@@ -134,18 +147,22 @@ fun SetupScreen(
             viewModel.onSetupLeft()
         }
     }
-    LaunchedEffect(Unit) { viewModel.refreshWatch() }
+    LaunchedEffect(Unit) {
+        viewModel.refreshWatch()
+        viewModel.onSetupShown()
+    }
 
     val validation = uiState.validation
-    val display = setupDisplay(uiState.waitForPulse, connectionState, uiState.monitor, source)
+    val display = setupDisplay(uiState.waitForPulse, selectedConnected, uiState.monitor, source)
     val waitingForWatch = watch && uiState.watchCard == WatchCardState.Waiting
     val canStart = startEnabled(
-        validation.isValid, uiState.waitForPulse, connectionState, bleGranted,
-        scanInProgressSince != null, startingBpm, uiState.targetBpm,
+        validation.isValid, uiState.waitForPulse, selectedConnected, bleGranted,
+        // An oximeter scan only matters when the oximeter is the source.
+        source.needsPhoneBluetooth && scanInProgressSince != null, startingBpm, uiState.targetBpm,
         uiState.monitor, uiState.totalDurationMin, source
     ) && !waitingForWatch
     val showNote = !uiState.monitor && startingBpm != null && showMayNotReachNote(
-        uiState.waitForPulse, connectionState, startingBpm, uiState.targetBpm,
+        uiState.waitForPulse, selectedConnected, startingBpm, uiState.targetBpm,
         uiState.totalDurationMin, uiState.rampDurationMin, maxOffset, descentPattern, source
     )
     // Steady-BPM warning only: Start stays enabled (user ruling 2026-10-10).
@@ -208,7 +225,7 @@ fun SetupScreen(
         ) {
 
             MetronomeEcg(
-                mode = if (connectionState && !watch) EcgMode.TRACE else EcgMode.FLAT,
+                mode = if (selectedConnected && !watch) EcgMode.TRACE else EcgMode.FLAT,
                 bpm = IDLE_DISPLAY_BPM,
                 height = 220.dp,
                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp)
@@ -217,11 +234,12 @@ fun SetupScreen(
             PulseFromCard(
                 source = source, onSource = viewModel::onSourceSelected,
                 watchCard = uiState.watchCard, onCheckAgain = viewModel::refreshWatch,
+                fitbitStatus = fitbitStatus,
                 showOximeter = bleGranted
             ) {
                 ConnectionCard(
-                    connected = connectionState,
-                    deviceName = deviceName,
+                    connected = selectedConnected,
+                    deviceName = selectedDeviceName,
                     battery = battery,
                     // BleModule's own window state, which always clears; the old uiState flag stuck
                     // "Scanning…" (and disabled Rescan) when a tap while connected started no scan.
@@ -230,8 +248,8 @@ fun SetupScreen(
                     embedded = true
                 )
             }
-            if (!watch && !bleGranted) PermissionNotice(onPermissionNoticeTapped)
-            if (!watch && uiState.scanOutcome is ScanOutcome.NoneFound) {
+            if (source.needsPhoneBluetooth && !bleGranted) PermissionNotice(onPermissionNoticeTapped)
+            if (source.needsPhoneBluetooth && uiState.scanOutcome is ScanOutcome.NoneFound) {
                 Text(
                     "No pulse oximeter found — make sure it's powered on and in range, then try again",
                     color = PmColors.RedText, fontSize = 13.sp, lineHeight = 19.sp,
@@ -340,7 +358,7 @@ fun SetupScreen(
                     display.startLabel,
                     onClick = {
                         if (watch) viewModel.startWithWatch()
-                        else onStartSession(resolveStartMode(uiState.waitForPulse, connectionState, uiState.monitor))
+                        else onStartSession(resolveStartMode(uiState.waitForPulse, selectedConnected, uiState.monitor, source))
                     },
                     enabled = canStart
                 )
@@ -433,16 +451,17 @@ private fun ConnectionCard(
 
 /**
  * The Pulse-from card: a PULSE FROM selector row, then the oximeter connection row (via [oximeter],
- * shown only with Bluetooth permission) or the watch status row.
+ * shown only with Bluetooth permission), the watch status row or the Fitbit status row.
  */
 @Composable
 private fun PulseFromCard(
     source: PulseSourceKind, onSource: (PulseSourceKind) -> Unit,
     watchCard: WatchCardState?, onCheckAgain: () -> Unit,
+    fitbitStatus: FitbitStatus,
     showOximeter: Boolean, oximeter: @Composable () -> Unit
 ) {
     var menu by remember { mutableStateOf(false) }
-    val watch = source == PulseSourceKind.WATCH
+    val sources = listOf(PulseSourceKind.OXIMETER to "Oximeter", PulseSourceKind.WATCH to "Watch", PulseSourceKind.FITBIT to "Fitbit")
     Column(
         Modifier.padding(horizontal = 16.dp).padding(top = 8.dp).fillMaxWidth()
             .clip(RoundedCornerShape(18.dp)).background(PmColors.Surface)
@@ -461,7 +480,7 @@ private fun PulseFromCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        if (watch) "Watch" else "Oximeter", color = PmColors.Text,
+                        sources.first { it.first == source }.second, color = PmColors.Text,
                         style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                     )
                     Text("▾", color = PmColors.Muted, fontSize = 13.sp)
@@ -471,7 +490,7 @@ private fun PulseFromCard(
                     modifier = Modifier.width(210.dp), containerColor = PmColors.Surface2,
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    listOf(PulseSourceKind.OXIMETER to "Oximeter", PulseSourceKind.WATCH to "Watch").forEach { (kind, label) ->
+                    sources.forEach { (kind, label) ->
                         val selected = kind == source
                         Row(
                             Modifier.padding(horizontal = 6.dp).fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp))
@@ -490,13 +509,50 @@ private fun PulseFromCard(
                 }
             }
         }
-        if (watch) {
-            RowDivider()
-            WatchStatusRow(watchCard, onCheckAgain)
-        } else if (showOximeter) {
-            RowDivider()
-            oximeter()
+        when (source) {
+            PulseSourceKind.WATCH -> {
+                RowDivider()
+                WatchStatusRow(watchCard, onCheckAgain)
+            }
+            PulseSourceKind.FITBIT -> {
+                RowDivider()
+                FitbitStatusRow(fitbitStatus)
+            }
+            PulseSourceKind.OXIMETER -> if (showOximeter) {
+                RowDivider()
+                oximeter()
+            }
         }
+    }
+}
+
+/** Minimal Fitbit half of the Pulse-from card: a dot and one status line (measurement build; replaced later). */
+@Composable
+private fun FitbitStatusRow(status: FitbitStatus) {
+    val dot = when (status) {
+        is FitbitStatus.Receiving, FitbitStatus.NoReading -> PmColors.Green
+        FitbitStatus.PortBusy -> PmColors.Red
+        FitbitStatus.Off, FitbitStatus.Waiting -> PmColors.Dim
+    }
+    val text = when (status) {
+        FitbitStatus.Off, FitbitStatus.Waiting -> "Waiting for Fitbit — open HR Service on your watch"
+        is FitbitStatus.Receiving -> "Fitbit connected · ${status.bpm}"
+        FitbitStatus.NoReading -> "Fitbit connected · no reading"
+        FitbitStatus.PortBusy -> "Another app is using the Fitbit connection — close it and try again"
+    }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            Modifier.size(17.dp).clip(CircleShape).background(dot.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) { Box(Modifier.size(9.dp).clip(CircleShape).background(dot)) }
+        Text(
+            text, color = PmColors.Text, modifier = Modifier.weight(1f),
+            style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+        )
     }
 }
 

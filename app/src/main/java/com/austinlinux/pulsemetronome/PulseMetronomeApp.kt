@@ -21,6 +21,8 @@ import com.austinlinux.pulsemetronome.ble.SharedPreferencesDeviceAddressStore
 import com.austinlinux.pulsemetronome.data.AppDatabase
 import com.austinlinux.pulsemetronome.source.PulseSource
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.fitbit.FitbitPulseSource
+import com.austinlinux.pulsemetronome.source.fitbit.LoopbackHttpListener
 import com.austinlinux.pulsemetronome.source.watch.DataLayerWatchTransport
 import com.austinlinux.pulsemetronome.source.watch.WatchLink
 import com.austinlinux.pulsemetronome.source.watch.WatchPulseSource
@@ -47,10 +49,15 @@ class PulseMetronomeApp : Application() {
         WatchPulseSource(watchLink, watchTransport, appScope, nowMs = { System.currentTimeMillis() })
     }
 
+    val fitbitPulseSource: FitbitPulseSource by lazy {
+        FitbitPulseSource(appScope, { System.currentTimeMillis() }) { cb -> LoopbackHttpListener(appScope, onRequest = cb) }
+    }
+
     /** The session's pulse provider for [kind]. */
     fun pulseSourceFor(kind: PulseSourceKind): PulseSource = when (kind) {
         PulseSourceKind.OXIMETER -> bleModule
         PulseSourceKind.WATCH -> watchPulseSource
+        PulseSourceKind.FITBIT -> fitbitPulseSource
     }
 
     val sourceChoiceStore: com.austinlinux.pulsemetronome.source.SourceChoiceStore by lazy {

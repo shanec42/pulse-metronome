@@ -1,6 +1,8 @@
 package com.austinlinux.pulsemetronome.source
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SourceChoiceTest {
@@ -22,5 +24,21 @@ class SourceChoiceTest {
         s.set(PulseSourceKind.WATCH)
         assertEquals("WATCH", read())
         assertEquals(PulseSourceKind.WATCH, s.choice.value)
+    }
+
+    @Test
+    fun fitbitChoice_roundTrips() {
+        assertEquals(PulseSourceKind.FITBIT, store("FITBIT").first.choice.value)
+        val (s, read) = store(null)
+        s.set(PulseSourceKind.FITBIT)
+        assertEquals("FITBIT", read())
+        assertEquals(PulseSourceKind.FITBIT, s.choice.value)
+    }
+
+    @Test
+    fun needsPhoneBluetooth_onlyOximeter() {
+        assertTrue(PulseSourceKind.OXIMETER.needsPhoneBluetooth)
+        assertFalse(PulseSourceKind.WATCH.needsPhoneBluetooth)
+        assertFalse(PulseSourceKind.FITBIT.needsPhoneBluetooth)
     }
 }

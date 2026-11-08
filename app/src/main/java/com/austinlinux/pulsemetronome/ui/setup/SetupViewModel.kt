@@ -9,6 +9,9 @@ import com.austinlinux.pulsemetronome.engine.NoPulseDescent
 import com.austinlinux.pulsemetronome.engine.StartMode
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import com.austinlinux.pulsemetronome.source.SourceChoiceStore
+import com.austinlinux.pulsemetronome.source.fitbit.FitbitPulseSource
+import com.austinlinux.pulsemetronome.source.fitbit.HOLD_SETUP
+import com.austinlinux.pulsemetronome.source.needsPhoneBluetooth
 import com.austinlinux.pulsemetronome.source.watch.WatchLink
 import com.austinlinux.pulsemetronome.source.watch.WatchPulseSource
 import kotlinx.coroutines.flow.Flow
@@ -61,6 +64,12 @@ fun resolveStartMode(waitForPulse: Boolean, meterConnected: Boolean, monitor: Bo
     else -> StartMode.NO_PULSE
 }
 
+/** Whether the selected source is connected; another source's live link (e.g. a still-connected oximeter) doesn't count. */
+fun selectedConnected(source: PulseSourceKind, oximeterConnected: Boolean, fitbitConnected: Boolean): Boolean = when (source) {
+    PulseSourceKind.FITBIT -> fitbitConnected
+    PulseSourceKind.OXIMETER, PulseSourceKind.WATCH -> oximeterConnected
+}
+
 
 data class SetupDisplay(
     val showStartingBpm: Boolean, val startLabel: String,
@@ -87,14 +96,14 @@ fun startEnabled(
     monitor: Boolean = false, totalDurationMin: Int? = null,
     source: PulseSourceKind = PulseSourceKind.OXIMETER
 ): Boolean {
-    // The Watch link has its own permissions, so the phone's Bluetooth grant is irrelevant to it.
-    val bleOk = bleGranted || source == PulseSourceKind.WATCH
+    // The Watch and Fitbit links don't use the phone's Bluetooth, so its grant is irrelevant to them.
+    val bleOk = bleGranted || !source.needsPhoneBluetooth
     // Monitor has no target or ramp, so only Bluetooth and a valid total matter (formValid also checks the hidden fields).
     if (monitor) return bleOk && totalDurationMin != null && totalDurationMin > 0
     if (!formValid) return false
     return when (resolveStartMode(waitForPulse, meterConnected, source = source)) {
         StartMode.NO_PULSE -> !scanInProgress && startingBpm != null && startingBpm in 30..200
-        StartMode.NOW -> bleGranted && !scanInProgress
+        StartMode.NOW -> bleOk && !scanInProgress
         StartMode.WHEN_PULSE_DETECTED -> bleOk
     }
 }
@@ -170,7 +179,8 @@ class SetupViewModel(
     private val valuesStore: SetupValuesStore,
     private val sourceStore: SourceChoiceStore,
     private val watchLink: WatchLink,
-    private val watchPulseSource: WatchPulseSource
+    private val watchPulseSource: WatchPulseSource,
+    private val fitbit: FitbitPulseSource
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SetupUiState())
     val uiState: StateFlow<SetupUiState> = _uiState.asStateFlow()
@@ -246,6 +256,17 @@ class SetupViewModel(
         watch.reset()
         _uiState.value = _uiState.value.copy(watchCard = null)
         if (kind == PulseSourceKind.WATCH) watch.refresh()
+        setFitbitHold(kind == PulseSourceKind.FITBIT)
+    }
+
+    /** Keeps the Fitbit listener open while Setup is showing with Fitbit selected, so its status is live. */
+    fun setFitbitHold(visibleAndSelected: Boolean) {
+        if (visibleAndSelected) fitbit.hold(HOLD_SETUP) else fitbit.release(HOLD_SETUP)
+    }
+
+    /** Setup came on screen (first composition or ON_RESUME): listen for the Fitbit if it is the chosen source. */
+    fun onSetupShown() {
+        if (sourceStore.choice.value == PulseSourceKind.FITBIT) setFitbitHold(true)
     }
 
     /** Re-runs the watch availability check (selection, screen resume, "Check again"); ignored while waiting. */
@@ -262,8 +283,16 @@ class SetupViewModel(
     /** Starts the session for the [watchStarted] event with [begin]; if it returns false the watch is stopped. */
     fun consumeWatchStart(begin: () -> Boolean) = watch.consume(begin)
 
-    /** Setup left the screen (navigation or ON_STOP): an unfinished watch start is abandoned. */
-    fun onSetupLeft() = watch.leave()
+    /** Setup left the screen (navigation or ON_STOP): an unfinished watch start is abandoned and Setup's Fitbit hold dropped. */
+    fun onSetupLeft() {
+        watch.leave()
+        setFitbitHold(false)
+    }
+
+    override fun onCleared() {
+        // A hold that outlived this ViewModel would keep the port open with no Setup to show it.
+        fitbit.release(HOLD_SETUP)
+    }
 
     fun onWaitForPulseChanged(value: Boolean) {
         updateForm(_uiState.value.copy(waitForPulse = value))

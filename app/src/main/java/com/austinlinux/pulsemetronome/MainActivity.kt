@@ -68,6 +68,7 @@ import com.austinlinux.pulsemetronome.permissions.PermissionsManager
 import com.austinlinux.pulsemetronome.service.SessionForegroundService
 import com.austinlinux.pulsemetronome.service.SessionStateBus
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.needsPhoneBluetooth
 import com.austinlinux.pulsemetronome.ui.history.HistoryScreen
 import com.austinlinux.pulsemetronome.ui.history.HistoryViewModel
 import com.austinlinux.pulsemetronome.ui.legal.LegalDoc
@@ -280,17 +281,17 @@ class MainActivity : ComponentActivity() {
                                 LaunchedEffect(Unit) {
                                     if (!permissionsGranted && !permissionsAsked) {
                                         permissionsAsked = true
-                                        // The Watch source never uses the phone's Bluetooth, so only ask for notifications.
+                                        // The Watch and Fitbit sources never use the phone's Bluetooth, so only ask for notifications.
                                         val toRequest = PermissionsManager.initialRequest(
                                             requiredPermissions.toList(), blePermissions,
-                                            watchSource = app.sourceChoiceStore.choice.value == PulseSourceKind.WATCH
+                                            skipBluetooth = !app.sourceChoiceStore.choice.value.needsPhoneBluetooth
                                         ) { ContextCompat.checkSelfPermission(this@MainActivity, it) == PackageManager.PERMISSION_GRANTED }
                                         if (toRequest.isNotEmpty()) requestBle(toRequest, fromTap = false)
                                     }
                                 }
                                 val setupViewModel: SetupViewModel = viewModel(
                                     factory = viewModelFactory {
-                                        initializer { SetupViewModel(app.bleModule, app.setupValuesStore, app.sourceChoiceStore, app.watchLink, app.watchPulseSource) }
+                                        initializer { SetupViewModel(app.bleModule, app.setupValuesStore, app.sourceChoiceStore, app.watchLink, app.watchPulseSource, app.fitbitPulseSource) }
                                     }
                                 )
                                 val settingsViewModel: SettingsViewModel = viewModel(
@@ -351,6 +352,7 @@ class MainActivity : ComponentActivity() {
                                 SetupScreen(
                                     viewModel = setupViewModel,
                                     bleModule = app.bleModule,
+                                    fitbitPulseSource = app.fitbitPulseSource,
                                     startingBpm = settings.staticFallbackStartingBpm,
                                     onStartingBpmChanged = settingsViewModel::onStaticFallbackStartingBpmChanged,
                                     maxOffset = settings.maxOffset ?: 2,
@@ -364,11 +366,12 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToHistory = { navController.navigate(Routes.HISTORY) },
                                     onNavigateToFaq = { navController.navigate(Routes.FAQ) },
                                     onStartSession = { startMode ->
-                                        if (startMode != StartMode.NO_PULSE && !bleGranted) {
+                                        val source = app.sourceChoiceStore.choice.value
+                                        if (source.needsPhoneBluetooth && startMode != StartMode.NO_PULSE && !bleGranted) {
                                             if (bleDeniedPermanently) openAppSettings() else requestBle(blePermissions.toList(), fromTap = true)
                                             return@SetupScreen
                                         }
-                                        beginSession(startMode, PulseSourceKind.OXIMETER)
+                                        beginSession(startMode, source)
                                     }
                                 )
                             }

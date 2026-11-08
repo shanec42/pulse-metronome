@@ -20,6 +20,7 @@ import com.austinlinux.pulsemetronome.audio.AudioEngine
 import com.austinlinux.pulsemetronome.audio.loadClickSample
 import com.austinlinux.pulsemetronome.source.PulseSource
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
+import com.austinlinux.pulsemetronome.source.needsPhoneBluetooth
 import com.austinlinux.pulsemetronome.ble.protocol.PulseReading
 import com.austinlinux.pulsemetronome.data.AppDatabase
 import com.austinlinux.pulsemetronome.debug.DebugCapture
@@ -191,9 +192,9 @@ class SessionForegroundService : Service() {
             ?.let { name -> PulseSourceKind.values().firstOrNull { it.name == name } }
             ?: PulseSourceKind.OXIMETER
         // NO_PULSE never touches Bluetooth and may run without its permission; claiming the
-        // connectedDevice type without BLUETOOTH_CONNECT throws on Android 14. The Watch source
-        // doesn't use the phone's Bluetooth either.
-        if ((startMode == StartMode.NO_PULSE || sourceKind == PulseSourceKind.WATCH) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        // connectedDevice type without BLUETOOTH_CONNECT throws on Android 14. The Watch and
+        // Fitbit sources don't use the phone's Bluetooth either.
+        if ((startMode == StartMode.NO_PULSE || !sourceKind.needsPhoneBluetooth) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, buildInitialNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
             startForeground(NOTIFICATION_ID, buildInitialNotification())
