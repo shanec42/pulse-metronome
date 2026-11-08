@@ -81,6 +81,33 @@ class LoopbackHttpListenerTest {
     }
 
     @Test
+    fun throwingCallback_doesNotStopNextPost() {
+        var first = true
+        val listener = LoopbackHttpListener(scope, 0) {
+            if (first) { first = false; throw IllegalStateException("boom") }
+            received.put(it)
+        }.also { listeners += it }
+        listener.start()
+        runCatching { post(listener, """{"bpm":60}""") }
+        post(listener, """{"bpm":61}""")
+        assertEquals(HrRequest.Bpm(61), received.poll(2, TimeUnit.SECONDS))
+        assertTrue(listener.isRunning)
+    }
+
+    @Test
+    fun cancelledScope_leavesListenerStoppedAndPortFree() {
+        val free = ServerSocket(0, 50, loopback).use { it.localPort }
+        val dead = CoroutineScope(SupervisorJob()).also { it.cancel() }
+        val listener = LoopbackHttpListener(dead, free) { }.also { listeners += it }
+        listener.start()
+        // The cancelled job completes on an IO thread, so wait (bounded) for the cleanup.
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (listener.isRunning && System.nanoTime() < deadline) Thread.yield()
+        assertFalse(listener.isRunning)
+        ServerSocket(free, 50, loopback).close() // port was released
+    }
+
+    @Test
     fun stop_thenStartAgain_works() {
         val listener = newListener()
         assertEquals(StartResult.STARTED, listener.start())

@@ -1,6 +1,7 @@
 package com.austinlinux.pulsemetronome.source.fitbit
 
 import com.austinlinux.pulsemetronome.debug.DebugCapture
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,8 +52,18 @@ class LoopbackHttpListener(
             return StartResult.PORT_BUSY
         }
         server = socket
-        scope.launch(Dispatchers.IO) { acceptLoop(socket) }
+        // Also fires when the scope is already cancelled and the loop never runs.
+        scope.launch(Dispatchers.IO) { acceptLoop(socket) }.invokeOnCompletion { loopEnded(socket) }
         StartResult.STARTED
+    }
+
+    /** Frees [socket] and clears state if the loop ended without [stop] having done so. */
+    private fun loopEnded(socket: ServerSocket) {
+        val unexpected = synchronized(lock) {
+            (server === socket).also { if (it) server = null }
+        }
+        runCatching { socket.close() }
+        if (unexpected) DebugCapture.event("FITBIT") { "listener loop ended unexpectedly" }
     }
 
     override fun stop() {
@@ -67,7 +78,14 @@ class LoopbackHttpListener(
             } catch (_: java.io.IOException) {
                 break // closed by stop()
             }
-            client.use { handle(it) }
+            try {
+                client.use { handle(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A bad request or a throwing callback must not take the listener down.
+                DebugCapture.event("FITBIT") { "handler failed: $e" }
+            }
         }
     }
 
