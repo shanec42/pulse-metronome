@@ -53,6 +53,10 @@ class HrServiceProtocolTest {
         assertEquals(HrRequest.Invalid, parse(post("x".repeat(MAX_BODY_BYTES + 1), null)))
     }
 
+    @Test fun parse_bodyShorterThanContentLength_rejected() {
+        assertEquals(HrRequest.Invalid, parse(post("""{"bpm":6""", 10)))
+    }
+
     @Test fun parse_garbage_rejected() {
         assertEquals(HrRequest.Invalid, parse("hello\r\n\r\n"))
         assertEquals(HrRequest.Invalid, parse(""))

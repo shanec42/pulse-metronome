@@ -41,7 +41,7 @@ fun readHrRequest(input: InputStream): HrRequest {
     } else {
         val length = lengthValue.toIntOrNull()
         if (length == null || length < 0 || length > MAX_BODY_BYTES) return HrRequest.Invalid
-        readBody(input, length)
+        readBody(input, length)?.takeIf { it.size == length } // a truncated body could parse as a wrong BPM
     } ?: return HrRequest.Invalid
 
     if (body.size > MAX_BODY_BYTES) return HrRequest.Invalid
