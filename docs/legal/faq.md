@@ -28,6 +28,10 @@ Android's own device backup may include the app's data in your Google backup. Th
 
 The Wellue KS-60FW and oximeters using the FS20F protocol are tested. The BerryMed BM1000 series, the EMAY SleepO2, the Wellue/Viatom O2Ring and Checkme O2, and oximeters that use the standard Bluetooth Pulse Oximeter Service are supported but haven't been tested. If you don't see your device listed here, it may still work using one of these protocols. Other devices may be added in the future as they become available.
 
+## How do I set up my Wear OS watch?
+
+Install Pulse Metronome on the watch from the Play Store. Then open it on the watch once and allow heart rate (and notifications) when it asks. Until you do, the phone can't start the watch and shows "Open Pulse Metronome on your watch once to allow heart rate." After that, choose Watch as the pulse source on the phone and press START; the watch starts on its own.
+
 ## I don't have a pulse oximeter, or my pulse oximeter doesn't have bluetooth
 
 You don't need a pulse oximeter to use this app. Simply concentrating on the tic of the metronome and noticing when it aligns with your pulse is generally enough to guide you for a pulse focused meditation. Before I built this app, I used to use a standard metronome set with a fixed rate. It doesn't work quite as well, but it does work.
