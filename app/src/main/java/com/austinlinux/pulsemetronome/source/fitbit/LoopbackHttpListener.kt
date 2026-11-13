@@ -59,16 +59,19 @@ class LoopbackHttpListener(
 
     /** Frees [socket] and clears state if the loop ended without [stop] having done so. */
     private fun loopEnded(socket: ServerSocket) {
+        // Close before clearing, under the lock: isRunning == false must mean the port is free to rebind.
         val unexpected = synchronized(lock) {
+            runCatching { socket.close() }
             (server === socket).also { if (it) server = null }
         }
-        runCatching { socket.close() }
         if (unexpected) DebugCapture.event("FITBIT") { "listener loop ended unexpectedly" }
     }
 
     override fun stop() {
-        val socket = synchronized(lock) { server.also { server = null } }
-        runCatching { socket?.close() }
+        synchronized(lock) {
+            runCatching { server?.close() }
+            server = null
+        }
     }
 
     private fun acceptLoop(socket: ServerSocket) {
