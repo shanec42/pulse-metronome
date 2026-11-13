@@ -1,10 +1,18 @@
 package com.austinlinux.pulsemetronome.ui.setup
 
 import android.content.pm.PackageManager
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
@@ -68,7 +76,7 @@ fun FitbitSetupGuide(
                 GuideStep("Which Fitbit do you have?") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         FitbitWatchFamily.entries.forEach { family ->
-                            PillButton(family.label, { onOpenUrl(family.galleryUrl) }, filled = false, height = 48.dp)
+                            FamilyButton(family.label) { onOpenUrl(family.galleryUrl) }
                         }
                     }
                 }
@@ -84,6 +92,23 @@ fun FitbitSetupGuide(
                 }
             }
         }
+    }
+}
+
+/** Outlined button in PillButton's style that grows to fit a wrapped label (PillButton's height is fixed). */
+@Composable
+private fun FamilyButton(label: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(24.dp)
+    Box(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
+            .border(1.dp, PmColors.Outline, shape).clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label, color = PmColors.Text, textAlign = TextAlign.Center,
+            style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        )
     }
 }
 
