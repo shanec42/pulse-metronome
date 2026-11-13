@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -463,8 +464,9 @@ private fun PulseFromCard(
     showOximeter: Boolean, oximeter: @Composable () -> Unit
 ) {
     var menu by remember { mutableStateOf(false) }
-    var showGuide by remember { mutableStateOf(false) }
-    var guideInstalled by remember { mutableStateOf(true) }
+    // Saveable: the guide must survive rotation and the round trip to the Gallery.
+    var showGuide by rememberSaveable { mutableStateOf(false) }
+    var guideInstalled by rememberSaveable { mutableStateOf(true) }
     val context = LocalContext.current
     if (showGuide) {
         FitbitSetupGuide(

@@ -160,6 +160,7 @@ class FitbitPulseSource(
     private fun close() {
         listener.stop()
         DebugCapture.event("FITBIT") { "listener stop" }
+        lastRequestElapsed = -1
         silenceGen++
         silenceJob?.cancel()
         silenceJob = null

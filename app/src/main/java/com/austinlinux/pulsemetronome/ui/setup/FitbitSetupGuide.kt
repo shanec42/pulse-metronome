@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
@@ -101,7 +102,7 @@ private fun FamilyButton(label: String, onClick: () -> Unit) {
     val shape = RoundedCornerShape(24.dp)
     Box(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
-            .border(1.dp, PmColors.Outline, shape).clickable(onClick = onClick)
+            .border(1.dp, PmColors.Outline, shape).clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
