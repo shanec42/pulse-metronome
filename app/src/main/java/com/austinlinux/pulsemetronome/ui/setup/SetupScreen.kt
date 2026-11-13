@@ -2,7 +2,9 @@ package com.austinlinux.pulsemetronome.ui.setup
 
 import androidx.compose.ui.graphics.toArgb
 import com.austinlinux.pulsemetronome.ui.theme.TopNoticeBar
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import com.austinlinux.pulsemetronome.alarm.ACTION_DISMISS_ALARM
 import com.austinlinux.pulsemetronome.service.SessionStateBus
@@ -461,6 +463,18 @@ private fun PulseFromCard(
     showOximeter: Boolean, oximeter: @Composable () -> Unit
 ) {
     var menu by remember { mutableStateOf(false) }
+    var showGuide by remember { mutableStateOf(false) }
+    var guideInstalled by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    if (showGuide) {
+        FitbitSetupGuide(
+            status = fitbitStatus, fitbitAppInstalled = guideInstalled,
+            onOpenUrl = { url ->
+                try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: ActivityNotFoundException) { }
+            },
+            onDismiss = { showGuide = false }
+        )
+    }
     val sources = listOf(PulseSourceKind.OXIMETER to "Oximeter", PulseSourceKind.WATCH to "Watch", PulseSourceKind.FITBIT to "Fitbit")
     Column(
         Modifier.padding(horizontal = 16.dp).padding(top = 8.dp).fillMaxWidth()
@@ -516,7 +530,10 @@ private fun PulseFromCard(
             }
             PulseSourceKind.FITBIT -> {
                 RowDivider()
-                FitbitStatusRow(fitbitStatus, onHelp = {}, onCheckAgain = onFitbitCheckAgain)
+                FitbitStatusRow(fitbitStatus, onHelp = {
+                    guideInstalled = context.packageManager.isFitbitAppInstalled()
+                    showGuide = true
+                }, onCheckAgain = onFitbitCheckAgain)
             }
             PulseSourceKind.OXIMETER -> if (showOximeter) {
                 RowDivider()

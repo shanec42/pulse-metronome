@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
 
+    <queries>
+        <package android:name="com.fitbit.FitbitMobile" />
+    </queries>
+
     <application
         android:name=".PulseMetronomeApp"
         android:icon="@mipmap/ic_launcher"
