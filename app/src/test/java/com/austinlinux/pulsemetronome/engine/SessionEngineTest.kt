@@ -250,6 +250,23 @@ class SessionEngineTest {
     }
 
     @Test
+    fun `a 6 s gap in RUNNING is not signal loss with 10 s staleness but is with the default`() {
+        for ((staleness, expectLost) in listOf(10_000L to false, STALENESS_TIMEOUT_MS to true)) {
+            val clock = FakeMonotonicClock()
+            val engine = SessionEngine(defaultConfig(), clock, staleness)
+            val states = mutableListOf<SessionState>()
+            engine.addListener { if (it is SessionEvent.StateUpdated) states.add(it.state) }
+
+            engine.start(StartMode.WHEN_PULSE_DETECTED)
+            feedThreeReadings(engine, clock, 90)
+            clock.advanceMs(6_000L)
+            engine.onTick()
+
+            assertEquals(expectLost, states.last().signalLost)
+        }
+    }
+
+    @Test
     fun `valid pulse arriving while disconnected does not clear signal loss or change bpm`() {
         val clock = FakeMonotonicClock()
         val engine = SessionEngine(defaultConfig(), clock)

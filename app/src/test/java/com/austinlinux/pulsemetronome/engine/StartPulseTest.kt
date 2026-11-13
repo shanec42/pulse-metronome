@@ -12,6 +12,10 @@ class StartPulseTest {
         assertNull(usableInitialPulse(78, atMs = 10_000L, nowMs = 10_000L + STALENESS_TIMEOUT_MS))
         assertNull(usableInitialPulse(78, atMs = 10_000L, nowMs = 60_000L))
     }
+    @Test fun `a custom staleness window moves the cutoff`() {
+        assertEquals(78, usableInitialPulse(78, atMs = 0L, nowMs = 9_999L, stalenessMs = 10_000L))
+        assertNull(usableInitialPulse(78, atMs = 0L, nowMs = 10_000L, stalenessMs = 10_000L))
+    }
     @Test fun `no reading means no initial pulse`() {
         assertNull(usableInitialPulse(null, atMs = null, nowMs = 5_000L))
     }

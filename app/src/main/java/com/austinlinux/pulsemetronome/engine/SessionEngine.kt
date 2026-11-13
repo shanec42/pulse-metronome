@@ -94,11 +94,12 @@ sealed class SessionEvent {
  */
 class SessionEngine(
     private val config: SessionConfig,
-    private val clock: MonotonicClock
+    private val clock: MonotonicClock,
+    private val stalenessMs: Long = STALENESS_TIMEOUT_MS
 ) {
     private val smoother = PulseSmoother()
     private val rateLimiter = BpmRateLimiter()
-    private val signalTracker = SignalLossTracker(clock)
+    private val signalTracker = SignalLossTracker(clock, stalenessMs)
     private val verificationValidator = PulseReadingValidator()
     private var runningPhaseFilter: RunningPulseFilter? = null  // only instantiated for WHEN_PULSE_DETECTED
 
@@ -288,7 +289,7 @@ class SessionEngine(
     private fun handleVerificationReading(rawPulse: Int) {
         val now = clock.nowMs()
         val last = lastVerificationReadingAtMs
-        if (last != null && now - last >= STALENESS_TIMEOUT_MS) {
+        if (last != null && now - last >= stalenessMs) {
             resetVerificationStreak()
         }
         lastVerificationReadingAtMs = now

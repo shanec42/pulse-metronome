@@ -21,6 +21,7 @@ import com.austinlinux.pulsemetronome.audio.loadClickSample
 import com.austinlinux.pulsemetronome.source.PulseSource
 import com.austinlinux.pulsemetronome.source.PulseSourceKind
 import com.austinlinux.pulsemetronome.source.needsPhoneBluetooth
+import com.austinlinux.pulsemetronome.source.stalenessMs
 import com.austinlinux.pulsemetronome.ble.protocol.PulseReading
 import com.austinlinux.pulsemetronome.data.AppDatabase
 import com.austinlinux.pulsemetronome.debug.DebugCapture
@@ -218,7 +219,7 @@ class SessionForegroundService : Service() {
         DebugCapture.event("SESSION") { "start mode=$startMode" }
 
         db = AppDatabase.instance(applicationContext)  // shared singleton, see Task 10/22
-        engine = SessionEngine(config, SystemMonotonicClock())
+        engine = SessionEngine(config, SystemMonotonicClock(), sourceKind.stalenessMs)
         // Reuses the app-scoped source (the BleModule for OXIMETER, constructed once in PulseMetronomeApp) - NOT a new
         // instance - so a connection Setup already established isn't torn down and rebuilt
         // when a session starts. See Task 18's Ownership clarification.
@@ -259,7 +260,7 @@ class SessionForegroundService : Service() {
         SessionStateBus.clearEndedSessionId()
         val latest = pulseSource.latestValidPulse.value
         val initialPulse = if (startMode == StartMode.NOW)
-            usableInitialPulse(latest?.bpm, latest?.atElapsedMs, SystemClock.elapsedRealtime()) else null
+            usableInitialPulse(latest?.bpm, latest?.atElapsedMs, SystemClock.elapsedRealtime(), sourceKind.stalenessMs) else null
         engineEventChannel.trySend { engine.start(startMode, initialPulse) }
 
         return START_NOT_STICKY

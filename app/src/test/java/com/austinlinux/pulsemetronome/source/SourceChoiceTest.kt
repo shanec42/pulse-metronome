@@ -41,4 +41,11 @@ class SourceChoiceTest {
         assertFalse(PulseSourceKind.WATCH.needsPhoneBluetooth)
         assertFalse(PulseSourceKind.FITBIT.needsPhoneBluetooth)
     }
+
+    @Test
+    fun stalenessMs_fitbitTenSeconds_othersFour() {
+        assertEquals(10_000L, PulseSourceKind.FITBIT.stalenessMs)
+        assertEquals(4_000L, PulseSourceKind.OXIMETER.stalenessMs)
+        assertEquals(4_000L, PulseSourceKind.WATCH.stalenessMs)
+    }
 }

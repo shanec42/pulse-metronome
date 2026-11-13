@@ -13,6 +13,28 @@ class SignalLossTrackerTest {
     }
 
     @Test
+    fun `custom staleness of 10 s is not lost at 9999 ms and lost at 10000 ms`() {
+        val clock = FakeMonotonicClock()
+        val tracker = SignalLossTracker(clock, stalenessMs = 10_000L)
+        tracker.onValidPulse()
+        clock.advanceMs(9_999L)
+        assertFalse(tracker.isSignalLost())
+        clock.advanceMs(1L)
+        assertTrue(tracker.isSignalLost())
+    }
+
+    @Test
+    fun `default staleness is lost at 4000 ms`() {
+        val clock = FakeMonotonicClock()
+        val tracker = SignalLossTracker(clock)
+        tracker.onValidPulse()
+        clock.advanceMs(3_999L)
+        assertFalse(tracker.isSignalLost())
+        clock.advanceMs(1L)
+        assertTrue(tracker.isSignalLost())
+    }
+
+    @Test
     fun `after a valid pulse signal is not lost`() {
         val clock = FakeMonotonicClock()
         val tracker = SignalLossTracker(clock)

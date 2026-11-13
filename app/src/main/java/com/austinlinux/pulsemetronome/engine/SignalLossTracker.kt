@@ -7,7 +7,10 @@ const val STALENESS_TIMEOUT_MS: Long = 4_000L
  * four trigger conditions. Pure state machine — no timers of its own; caller
  * drives staleness evaluation by calling isSignalLost() against the injected clock.
  */
-class SignalLossTracker(private val clock: MonotonicClock) {
+class SignalLossTracker(
+    private val clock: MonotonicClock,
+    private val stalenessMs: Long = STALENESS_TIMEOUT_MS
+) {
     private var lastValidPulseAtMs: Long? = null
     private var disconnected: Boolean = false
     private var lastReportedInvalid: Boolean = false
@@ -31,6 +34,6 @@ class SignalLossTracker(private val clock: MonotonicClock) {
         if (lastReportedInvalid) return true
         if (sensorOff) return true
         val lastValid = lastValidPulseAtMs ?: return true
-        return clock.nowMs() - lastValid >= STALENESS_TIMEOUT_MS
+        return clock.nowMs() - lastValid >= stalenessMs
     }
 }
