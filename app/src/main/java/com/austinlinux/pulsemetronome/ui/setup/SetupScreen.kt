@@ -234,7 +234,7 @@ fun SetupScreen(
             PulseFromCard(
                 source = source, onSource = viewModel::onSourceSelected,
                 watchCard = uiState.watchCard, onCheckAgain = viewModel::refreshWatch,
-                fitbitStatus = fitbitStatus,
+                fitbitStatus = fitbitStatus, onFitbitCheckAgain = viewModel::refreshFitbit,
                 showOximeter = bleGranted
             ) {
                 ConnectionCard(
@@ -457,7 +457,7 @@ private fun ConnectionCard(
 private fun PulseFromCard(
     source: PulseSourceKind, onSource: (PulseSourceKind) -> Unit,
     watchCard: WatchCardState?, onCheckAgain: () -> Unit,
-    fitbitStatus: FitbitStatus,
+    fitbitStatus: FitbitStatus, onFitbitCheckAgain: () -> Unit,
     showOximeter: Boolean, oximeter: @Composable () -> Unit
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -516,43 +516,13 @@ private fun PulseFromCard(
             }
             PulseSourceKind.FITBIT -> {
                 RowDivider()
-                FitbitStatusRow(fitbitStatus)
+                FitbitStatusRow(fitbitStatus, onHelp = {}, onCheckAgain = onFitbitCheckAgain)
             }
             PulseSourceKind.OXIMETER -> if (showOximeter) {
                 RowDivider()
                 oximeter()
             }
         }
-    }
-}
-
-/** Minimal Fitbit half of the Pulse-from card: a dot and one status line (measurement build; replaced later). */
-@Composable
-private fun FitbitStatusRow(status: FitbitStatus) {
-    val dot = when (status) {
-        is FitbitStatus.Receiving, FitbitStatus.NoReading -> PmColors.Green
-        FitbitStatus.PortBusy -> PmColors.Red
-        FitbitStatus.Off, FitbitStatus.Waiting -> PmColors.Dim
-    }
-    val text = when (status) {
-        FitbitStatus.Off, FitbitStatus.Waiting -> "Waiting for Fitbit — open HR Service on your watch"
-        is FitbitStatus.Receiving -> "Fitbit connected · ${status.bpm}"
-        FitbitStatus.NoReading -> "Fitbit connected · no reading"
-        FitbitStatus.PortBusy -> "Another app is using the Fitbit connection — close it and try again"
-    }
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(
-            Modifier.size(17.dp).clip(CircleShape).background(dot.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) { Box(Modifier.size(9.dp).clip(CircleShape).background(dot)) }
-        Text(
-            text, color = PmColors.Text, modifier = Modifier.weight(1f),
-            style = TextStyle(fontFamily = PmFonts.Body, fontWeight = FontWeight.Medium, fontSize = 15.sp)
-        )
     }
 }
 

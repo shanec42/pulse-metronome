@@ -270,6 +270,9 @@ class SetupViewModel(
     }
 
     /** Re-runs the watch availability check (selection, screen resume, "Check again"); ignored while waiting. */
+    /** The Fitbit "Check again" pill: retry the listener if it is not currently receiving. */
+    fun refreshFitbit() = fitbit.retryIfIdle()
+
     fun refreshWatch() {
         if (sourceStore.choice.value == PulseSourceKind.WATCH) watch.refresh()
     }
